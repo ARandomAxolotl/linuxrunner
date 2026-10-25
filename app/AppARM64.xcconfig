@@ -1,0 +1,30 @@
+#include "App.xcconfig"
+#include "GuestARM64.xcconfig"
+#include "XtermRenderer.xcconfig"
+
+// ARM64 app release version, independent of inherited non-ARM64 targets.
+MARKETING_VERSION = 1.0.0
+CURRENT_PROJECT_VERSION = 895
+LINUXRUNNER_DIAGNOSTIC = NO
+
+// LinuxRunner identity and native environment manager. Override root bundle
+// identifier and DEVELOPMENT_TEAM in Xcode or via scripts/build-ipa.sh.
+PRODUCT_NAME = LinuxRunner
+PRODUCT_MODULE_NAME = LinuxRunner
+IPHONEOS_DEPLOYMENT_TARGET = 15.0
+ARCHS = arm64
+SWIFT_VERSION = 5.0
+SWIFT_OBJC_BRIDGING_HEADER = $(SRCROOT)/app/LinuxRunner/BridgingHeader.h
+GCC_PREPROCESSOR_DEFINITIONS = $(inherited) LINUXRUNNER=1
+
+// Separate original LinuxRunner icon; inherited assets/licenses remain intact.
+ASSETCATALOG_COMPILER_APPICON_NAME = LinuxRunnerAppIcon
+
+// Optional public-API framebuffer presentation, not guest GPU translation.
+OTHER_LDFLAGS = $(inherited) -framework Metal -framework MetalKit -lc++ "$(SRCROOT)/build/shader-compiler/$(PLATFORM_NAME)/liblrshader.a"
+
+LINUXRUNNER_LAUNCH_STORYBOARD = LinuxRunnerLaunch
+
+// Pinned, statically linked GLSL -> SPIR-V -> MSL reference compiler.
+CLANG_CXX_LANGUAGE_STANDARD = c++17
+HEADER_SEARCH_PATHS = $(inherited) "$(SRCROOT)/deps/glslang" "$(SRCROOT)/deps/spirv-cross"
