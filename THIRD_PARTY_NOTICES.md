@@ -11,7 +11,7 @@ LinuxRunner derives from iSH (Theodore Dubois and contributors) through ios-linu
 | SPIRV-Cross | `deps/spirv-cross` and shader-compiler-notices.txt | Apache-2.0; retain notices |
 | hterm / libapps | `deps/libapps` | BSD-3-Clause and component-specific terms |
 | xterm.js and addons | `app/terminal/xterm-vendor/LICENSES.md`, VENDORED.txt | MIT; package versions recorded with the bundle |
-| Ghostty Web 0.9.3 | `app/terminal/ghostty-web-VENDORED.txt`, terminal-notices.txt | MIT; vendor record describes local WKWebView patches |
+| Ghostty Web | `app/terminal/ghostty-web-VENDORED.txt`, terminal-notices.txt | MIT; vendor record describes local WKWebView patches |
 | Fira Code and JetBrains Mono Nerd Fonts | Font VENDORED.txt files and terminal-notices.txt | SIL OFL-1.1 and relevant Nerd Fonts notices |
 | LZMA API headers | `deps/lzma-api/COPYING`, provenance.json | Header-specific public-domain notice; system liblzma linked separately |
 | SQLite and Apple system libraries | Platform libraries | Their respective upstream/platform terms |

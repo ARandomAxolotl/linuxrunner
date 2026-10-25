@@ -1,0 +1,22 @@
+LinuxRunner 1.0.0 source distribution
+
+Source and license assets are distributed alongside the unsigned IPA at:
+https://github.com/mxhm11cr/LinuxRunner/releases/tag/v1.0.0
+
+LinuxRunner-1.0.0-source.tar.gz contains the application source, four pinned
+build dependencies, matching Alpine package recipes and checksum-verified
+source inputs for all packages in the bundled root filesystem, and the
+matching Ghostty Web and Ghostty source archives. SOURCE_CONTENTS.txt in the
+archive explains its layout. Minimal shallow Git metadata contains only the
+public snapshot and pinned dependency snapshots, allowing the existing build
+scripts to resolve their source revisions without private workspace history.
+
+LICENSES.txt contains the project license declarations, full GNU GPL texts
+and the bundled component notices. SHA256SUMS covers all attached release
+files. GitHub automatic source archives do not include submodule contents;
+use the dependency-inclusive source asset for the packaged source distribution.
+
+The original application release revision and upstream lineage remain in
+SOURCE_ORIGIN.txt. The released IPA is unsigned and must be signed before
+installation. No signing certificate, private key, or provisioning profile
+is part of this source distribution.
