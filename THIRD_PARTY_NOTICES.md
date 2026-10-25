@@ -30,7 +30,7 @@ GPL-covered package groups include BusyBox, apk-tools, alpine-baselayout and sca
 
 Bundled Alpine components retain their own source-distribution requirements. Their package versions and license fields are recorded in the root filesystem APK database.
 
-The rootfs patch bundle contains `wasm-polyfill.js` and `fetch-polyfill.js`. The former describes an llhttp parser reimplementation. Any applicable third-party notices must be retained with derived code.
+The rootfs patch bundle contains `wasm-polyfill.js` and `fetch-polyfill.js`. The former describes an llhttp parser reimplementation. The upstream llhttp MIT notice is retained in `licenses/llhttp-MIT.txt` as parser-interface attribution. LinuxRunner's polyfill sources remain in the rootfs patch bundle.
 
 ## Downloaded Linux software
 
@@ -38,4 +38,4 @@ Debian packages and additional Alpine packages are downloaded from distribution 
 
 ## Source availability
 
-The application source, build scripts and dependency revisions are retained in the repository. [SOURCE_ORIGIN.txt](SOURCE_ORIGIN.txt) records the release lineage and exact dependency commits. Submodule contents are not included in GitHub's automatic source archives; initialize the pinned submodules when building from a clone. Source-distribution requirements for bundled binaries apply separately from the licenses of packages downloaded later by users.
+The application source, build scripts and dependency revisions are retained in the repository. [SOURCE_ORIGIN.txt](SOURCE_ORIGIN.txt) records the release lineage and exact dependency commits. Submodule contents are not included in GitHub's automatic source archives; initialize the pinned submodules when building from a clone. Source-distribution requirements for bundled binaries apply separately from the licenses of packages downloaded later by users. The release source archive includes the matching Alpine package recipes and checksum-verified source inputs, the pinned build dependencies, and the Ghostty Web source archive whose distributed JS/WASM files match the shipped assets.
