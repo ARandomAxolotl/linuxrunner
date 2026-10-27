@@ -106,8 +106,8 @@ session=$1 user=$2
  sleep 3
  { echo "TERMINAL_TEST user=$user"; if [ -s "$session/terminal-command" ]; then su -l "$user" -c "$(cat "$session/terminal-command")" || echo "TERMINAL_TEST user_exit=$?"; fi
    echo "TERMINAL_TEST root"; if [ -s "$session/terminal-root-command" ]; then env -i HOME=/root TERM=xterm-256color /bin/sh -l -c "$(cat "$session/terminal-root-command")" || echo "TERMINAL_TEST root_exit=$?"; fi
-   echo TERMINAL_TEST_DONE; } > /tmp/lr-terminal-test.log 2>&1
- touch /tmp/lr-terminal-test.done
+   echo TERMINAL_TEST_DONE; } > "$session/terminal.log" 2>&1
+ touch "$session/terminal.done"
 ) &
 exec /bin/sh /home/mobile/Downloads/.linuxrunner/gui/session.sh "$3" "$4"
 ''')
@@ -127,7 +127,7 @@ with (out/'launch.log').open('w') as log:
   if guest.poll() is None:
    try:guest.wait(timeout=5)
    except subprocess.TimeoutExpired:guest.terminate();guest.wait(timeout=5)
-  for n in ('session.log','xvfb.log','display.log','application.log','focus.log','window.log','window-state','keymap.log','bus.log','wm.log','panel.log','desktop.log','desktop-state','xfconf.log','runtime-snapshots.log','process-snapshots.log','fd-trends.log'):
+  for n in ('session.log','xvfb.log','display.log','application.log','focus.log','window.log','window-state','keymap.log','bus.log','wm.log','panel.log','desktop.log','desktop-state','xfconf.log','runtime-snapshots.log','process-snapshots.log','fd-trends.log','terminal.log','desktop-state.probe'):
    if (session/n).exists():(out/n).write_bytes((session/n).read_bytes())
   if (session/'gpu-stats').is_dir():   # per-process bridge statistics (Metal vs Mesa draws)
    (out/'gpu-stats').mkdir(exist_ok=True)

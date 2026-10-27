@@ -138,9 +138,11 @@ static struct fd *generic_openat_impl(struct fs_info *fs, struct fd *at,
         if (err < 0) goto error;
     }
 
-    if (S_ISLNK(fd->type)) {
-        // path_normalize should have resolved symlinks, but if it didn't,
-        // return an error instead of crashing the whole app.
+    // O_PATH|O_NOFOLLOW names the symlink itself (Linux 2.6.39; systemd's
+    // chase/tmpfiles open the links they create this way). Any other open of
+    // an unresolved symlink is ELOOP: O_NOFOLLOW proper, or path_normalize
+    // having left one unresolved.
+    if (S_ISLNK(fd->type) && !((flags & O_PATH_) && (flags & O_NOFOLLOW_))) {
         err = _ELOOP;
         goto error;
     }
@@ -370,7 +372,16 @@ int generic_utime(struct fd *at, const char *path_raw, struct timespec atime, st
 
 ssize_t generic_readlinkat(struct fd *at, const char *path_raw, char *buf, size_t bufsize) {
     char path[MAX_PATH];
-    int err = path_normalize(at, path_raw, path, N_SYMLINK_NOFOLLOW);
+    int err;
+    if (path_raw[0] == '\0') {
+        // readlinkat(fd, "") reads the link an O_PATH|O_NOFOLLOW fd names
+        // (Linux 2.6.39); any other descriptor has no link here: ENOENT.
+        if (at == AT_PWD || !S_ISLNK(at->type))
+            return _ENOENT;
+        err = generic_getpath(at, path);
+    } else {
+        err = path_normalize(at, path_raw, path, N_SYMLINK_NOFOLLOW);
+    }
     if (err < 0)
         return err;
     struct mount *mount = find_mount_and_trim_path(path);

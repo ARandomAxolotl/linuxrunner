@@ -160,6 +160,7 @@ static int copy_task(struct task *task, dword_t flags, addr_t stack, addr_t ptid
     if (flags & CLONE_CHILD_CLEARTID_)
         task->clear_tid = ctid_addr;
     task->exit_signal = flags & CSIGNAL_;
+    task->pdeath_signal = 0;   // PR_SET_PDEATHSIG is not inherited
 
     // remember to do CLONE_SYSVSEM
     return 0;

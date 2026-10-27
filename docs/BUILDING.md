@@ -1,14 +1,14 @@
-# Building from source
+# Building LinuxRunner
+
+Ordinary installation uses the downloadable IPA. This guide is for building the **LinuxRunner** release scheme from source; developer execution-engine experiments use separate targets.
 
 ## Requirements
 
-- Xcode with the iOS SDK and command-line tools selected for that Xcode installation.
-- Git, Python 3, Meson, Ninja and CMake on `PATH`.
-- Network access for the pinned Alpine root filesystem and any missing source dependencies.
+Use macOS with full Xcode and its iOS SDK, plus Git, Python 3, Meson, Ninja, CMake and `ld.lld` on `PATH`. The guest ARM64 vDSO requires LLVM's ELF linker; release builds fail if it cannot be built. System utilities include `curl`, `tar`, `file`, `shasum`, `ditto`, `codesign` and Info-ZIP `zip`.
 
-The release uses Xcode 27.1 / iOS SDK 27.1, Meson 1.12.1, Ninja 1.13.2 and CMake 4.4.4. The iOS deployment target is 15.0. Select **LinuxRunner** in `iSH.xcodeproj`; the release configuration is **Release**.
+The current preparation build used Xcode 27.1 / iOS SDK 27.1, Meson 1.12.1, Ninja 1.13.2 and CMake 4.4.4. Other toolchain versions have not been qualified by this task. The deployment target is iOS/iPadOS 15.0.
 
-## Clone and initialize dependencies
+## Get the Source and Pinned Dependencies
 
 ```sh
 git clone https://github.com/mxhm11cr/LinuxRunner.git
@@ -16,11 +16,11 @@ cd LinuxRunner
 git submodule update --init --recursive --checkout -- deps/libapps deps/libarchive deps/glslang deps/spirv-cross
 ```
 
-These four submodules provide terminal assets, archive support and the shader compiler. Their exact revisions are pinned in the repository. The inherited `deps/linux` gitlink is retained for source provenance; the active application does not use it and does not require its checkout.
+These four submodules provide terminal assets, archive support and shader compilation. `deps/linux` is an inherited optional kernel-build gitlink; the application release does not use or boot it. The prerequisite checker examines the four active dependencies rather than requiring that unused checkout.
 
-## Build an unsigned IPA
+Select the `v1.0.1` tag when reproducing this release. Keep your own uncommitted work safe before switching revisions.
 
-Make sure command-line tools use the full Xcode installation. For Xcode installed in the standard application location:
+## Check and Build
 
 ```sh
 export DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer
@@ -29,37 +29,38 @@ scripts/build-ipa.sh --unsigned
 python3 scripts/verify-ipa.py build/releases
 ```
 
-The output is `build/releases/LinuxRunner.ipa`, with a matching `.xcarchive`, signing-status file and checksums. The unsigned IPA still needs signing before installation. `ARTIFACT_NAME` and `RELEASE_DIR` can override the output name and directory; pass the same `ARTIFACT_NAME` when running the verifier.
+The archive produces `build/releases/LinuxRunner.ipa`, the retained `.xcarchive`/symbols, signing status, SHA-256, source fingerprint and validation reports. `RELEASE_DIR` and `ARTIFACT_NAME` can select a separate output directory/name. When verifying a renamed artifact, use the same `ARTIFACT_NAME`.
 
-The build downloads Alpine 3.24.2 aarch64 and verifies its pinned SHA-256. For a cached copy, set `ROOTFS_CACHE` to the archive's location. The cache is verified identically to a download.
+The **unsigned** mode creates an ad-hoc signature, not an Apple-provisioned application. A compatible signing/sideloading tool must provide device installation authorization. The build verifies the rootfs checksum, GUI resource manifest, package structure and embedded vDSO. `verify-ipa.py` additionally compares the IPA executable to the retained archive, audits device Mach-O images and matches symbols. Physical-device execution is a separate check.
 
-For a signed build, configure your own Apple account and provisioning in Xcode, then run:
+Alpine 3.24.2 aarch64 is downloaded with a pinned SHA-256. `ROOTFS_CACHE` may point to a cached archive; the same hash verification applies. Normal tools are resolved through `PATH`. An optional `LINUXRUNNER_TOOLCHAIN_ROOT` supports the inherited bundled-toolchain layout; no maintainer-specific directory is required.
+
+## Signing Your Own Build
+
+Configure your own Apple account, certificate and provisioning in Xcode, then run:
 
 ```sh
 TEAM_ID=YOUR_TEAM_ID scripts/build-ipa.sh
 ```
 
-The default bundle identifier is `dev.linuxrunner.app`. App Group access to `group.dev.linuxrunner.app` is optional because the application supports private-container storage. Match the signing configuration when installing over an existing copy.
+Do not commit certificates, private keys or provisioning profiles. The default bundle identifier is `dev.linuxrunner.app`. App Group access to `group.dev.linuxrunner.app` is optional because private-container storage is supported. Keep app identity and container configuration consistent when updating an existing installation.
 
-## Guest graphics and support binaries
+## Release Configuration
 
-The repository retains the Linux ARM64 helpers packaged in `app/LinuxRunner/GUISupport.bundle`, their source files, notices and build recipes. The ordinary IPA build packages these retained resources; it does not rebuild every guest helper.
+`app/AppARM64.xcconfig` sets version **1.0.1**, build **897**, ARM64 and deployment target **15.0**. `app/iOS.xcconfig` selects device families **1,2**. `app/Info.plist` declares portrait/both landscape orientations for iPhone and all four orientations for iPad. The release uses the Asbestos interpreter, with JIT and dynamic emission disabled. Build numbers alone do not distinguish every development candidate; record the source revision and IPA checksum too.
 
-- `scripts/build-shader-compiler.sh` builds the host shader libraries from pinned glslang and SPIRV-Cross. The preparation scripts apply build-local corrections without changing those submodules.
-- `scripts/build-guest-mesa-metal.sh` and `scripts/build-guest-gles1.sh` rebuild Linux graphics libraries and probes using `graphics/` and `tests/linuxrunner/gpu/`.
-- The GUI bundle includes source and compilation commands for session helpers; see `install.sh`, `install-qt.sh` and `regression.sh`.
+## Guest Helpers and Developer Runtime
 
-Guest helper builds require a disposable Debian ARM64 fixture with GCC and the relevant X11/OpenGL/EGL/GLES development packages, plus `GPU_ROOTFS` and `GPU_EXCHANGE`. Build the command-line runtime first:
+The IPA packages retained Linux ARM64 helper binaries in `app/LinuxRunner/GUISupport.bundle`; ordinary application builds do not rebuild every guest helper. Their sources/compile recipes are mapped in [bundled-guest-source-map.json](../licenses/bundled-guest-source-map.json). Preserve the notices and corresponding source when distributing them.
+
+Graphics helper builds use `scripts/build-guest-mesa-metal.sh` and `scripts/build-guest-gles1.sh` with a disposable Debian ARM64 fixture, the required X11/OpenGL/EGL/GLES development packages, and `GPU_ROOTFS` / `GPU_EXCHANGE`. Only set `GPU_PACKAGE_ASSETS=1` when deliberately replacing packaged resources and regenerating their manifest.
+
+For the command-line runtime:
 
 ```sh
 meson setup build/host -Dengine=asbestos -Dguest_arch=arm64 -Djit=false -Djit_emit=false -Dcli_aot=
 ninja -C build/host ish
-```
-
-Use disposable fixtures for development. `GPU_PACKAGE_ASSETS=1` replaces the packaged guest binaries and regenerates their manifest. Check packaged resource integrity with:
-
-```sh
 python3 scripts/generate-gui-support-manifest.py --check
 ```
 
-Source revisions and license notices are recorded in [SOURCE_ORIGIN.txt](../SOURCE_ORIGIN.txt) and [THIRD_PARTY_NOTICES.md](../THIRD_PARTY_NOTICES.md).
+Use disposable fixtures for destructive tests. See [Architecture](ARCHITECTURE.md), [Contributing](../CONTRIBUTING.md) and [Third-party notices](../THIRD_PARTY_NOTICES.md). GitHub automatic source archives omit submodule contents; initialize the pins or use a separately supplied complete source archive.

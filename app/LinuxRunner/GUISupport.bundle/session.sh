@@ -8,6 +8,12 @@ case "$session" in session-????????-????-????-????-????????????|/home/mobile/Dow
 case "$mode" in test|xterm|qt|custom|desktop) ;; *) exit 2;; esac
 case "$session" in /*) ;; *) session="$PWD/$session";; esac
 exec >> "$session/session.log" 2>&1
+# New sessions and process-group signals: busybox where the distribution ships it
+# (Debian, Alpine), otherwise util-linux setsid and the shell's kill builtin
+# (Arch Linux ARM has no busybox).
+if [ -x /bin/busybox ]; then setsid_cmd='/bin/busybox setsid'; group_kill() { /bin/busybox kill "$@"; }
+elif command -v setsid >/dev/null; then setsid_cmd=setsid; group_kill() { kill "$@"; }
+else echo 'GUI_SESSION: support missing: setsid (busybox or util-linux); run Install Desktop Support'; exit 7; fi
 # The display and all its clients share the selected virtual Linux identity.
 # Administration/bootstrap remains root; login is performed by the distro's
 # actual su, including supplementary groups and HOME/USER/LOGNAME.
@@ -67,13 +73,13 @@ cleanup() {
     # Generic custom apps get a separate guest session/process group. Never
     # signal the CLI's group or guest init; children retain the owned group ID.
     if [ -n "$appgroup" ] && [ "$appgroup" -gt 1 ] && [ "$(cat "$session/application-group" 2>/dev/null || true)" = "$appgroup" ]; then
-        /bin/busybox kill -TERM "-$appgroup" 2>/dev/null || true
+        group_kill -TERM "-$appgroup" 2>/dev/null || true
     fi
     if [ "$mode" = desktop ] && [ -n "$bpid" ] && [ "$(cat "$session/bus-group" 2>/dev/null || true)" = "$bpid" ]; then
-        /bin/busybox kill -TERM "-$bpid" 2>/dev/null || true
+        group_kill -TERM "-$bpid" 2>/dev/null || true
     fi
     if [ -n "$spid" ] && [ "$(cat "$session/audio-group" 2>/dev/null || true)" = "$spid" ]; then
-        /bin/busybox kill -TERM "-$spid" 2>/dev/null || true
+        group_kill -TERM "-$spid" 2>/dev/null || true
     fi
     for pid in "$apid" "$vpid" "$wpid" "$mpid" "$spid" "$bpid" "$xpid"; do [ -z "$pid" ] || kill "$pid" 2>/dev/null || true; done
     # A client may be blocked in X I/O while the display disappears. Bound
@@ -92,14 +98,14 @@ cleanup() {
         i=$((i+1)); sleep .1
     done
     if [ -n "$appgroup" ] && [ "$appgroup" -gt 1 ] && [ "$(cat "$session/application-group" 2>/dev/null || true)" = "$appgroup" ]; then
-        /bin/busybox kill -KILL "-$appgroup" 2>/dev/null || true
+        group_kill -KILL "-$appgroup" 2>/dev/null || true
         echo "GUI_SESSION: stopped owned application process group=$appgroup"
     fi
     if [ "$mode" = desktop ] && [ -n "$bpid" ] && [ "$(cat "$session/bus-group" 2>/dev/null || true)" = "$bpid" ]; then
-        /bin/busybox kill -KILL "-$bpid" 2>/dev/null || true
+        group_kill -KILL "-$bpid" 2>/dev/null || true
     fi
     if [ -n "$spid" ] && [ "$(cat "$session/audio-group" 2>/dev/null || true)" = "$spid" ]; then
-        /bin/busybox kill -KILL "-$spid" 2>/dev/null || true
+        group_kill -KILL "-$spid" 2>/dev/null || true
     fi
     for pid in "$apid" "$vpid" "$wpid" "$mpid" "$spid" "$bpid" "$xpid"; do
         [ -n "$pid" ] || continue
@@ -159,14 +165,19 @@ case "$shm_mode" in
  *) echo 'GUI_SESSION: invalid shared-image mode (off or sysv required)'; exit 2;;
 esac
 echo "GUI_CAPTURE: shared-images=$shm_mode"
+export XDG_SESSION_TYPE=x11
 export QT_QPA_PLATFORM=${QT_QPA_PLATFORM:-xcb}
+export QT_FORCE_STDERR_LOGGING=${QT_FORCE_STDERR_LOGGING:-1}
 export QT_WIDGETS_RHI=${QT_WIDGETS_RHI:-0} QT_QUICK_BACKEND=${QT_QUICK_BACKEND:-software}
 export QT_OPENGL=${QT_OPENGL:-software} LIBGL_ALWAYS_SOFTWARE=${LIBGL_ALWAYS_SOFTWARE:-1}
 # A fresh X server belongs to this guest root; DISPLAY is session-scoped.
 width=640 height=480
 if [ -f "$session/geometry" ]; then
     geometry=$(cat "$session/geometry")
-    case "$geometry" in 640x480|800x600|1024x768|960x540) width=${geometry%x*};height=${geometry#*x};; *) echo 'GUI_SESSION: invalid display geometry'; exit 2;; esac
+    # A preset or the app's "Fit Screen" size: even WxH within 320x240..2560x1600.
+    case "$geometry" in ''|*[!0-9x]*|x*|*x|*x*x*) echo 'GUI_SESSION: invalid display geometry'; exit 2;; esac
+    width=${geometry%x*};height=${geometry#*x}
+    if [ "$width" -lt 320 ] || [ "$width" -gt 2560 ] || [ "$height" -lt 240 ] || [ "$height" -gt 1600 ] || [ $((width % 2)) -ne 0 ] || [ $((height % 2)) -ne 0 ]; then echo 'GUI_SESSION: invalid display geometry'; exit 2; fi
 fi
 export XAUTHORITY="$session/authority"
 umask 077
@@ -214,7 +225,7 @@ if [ "$mode" = desktop ]; then export XDG_CURRENT_DESKTOP=LXDE DESKTOP_SESSION=L
 # Keep it foreground in an owned child so display shutdown also stops it.
 if command -v dbus-daemon >/dev/null; then
     if [ "$mode" = desktop ]; then
-        /bin/busybox setsid /bin/sh -c 'echo $$ > "$1/bus-group"; exec dbus-daemon --session --nofork --print-address' sh "$session" > "$session/bus.address" 2> "$session/bus.log" & bpid=$!
+        $setsid_cmd /bin/sh -c 'echo $$ > "$1/bus-group"; exec dbus-daemon --session --nofork --print-address' sh "$session" > "$session/bus.address" 2> "$session/bus.log" & bpid=$!
     else dbus-daemon --session --nofork --print-address > "$session/bus.address" 2> "$session/bus.log" & bpid=$!; fi
     i=0
     while [ ! -s "$session/bus.address" ] && kill -0 "$bpid" 2>/dev/null; do
@@ -237,7 +248,7 @@ audio_port=
 [ ! -s "$session/audio-port" ] || audio_port=$(cat "$session/audio-port")
 case "$audio_port" in *[!0-9]*) audio_port=;; esac
 if [ -n "$audio_port" ] && command -v pulseaudio >/dev/null && command -v parec >/dev/null && [ -x ./audio-relay ]; then
-    /bin/busybox setsid /bin/sh ./audio-session.sh "$session" "$audio_port" > "$session/audio.log" 2>&1 & spid=$!
+    $setsid_cmd /bin/sh ./audio-session.sh "$session" "$audio_port" > "$session/audio.log" 2>&1 & spid=$!
     echo "GUI_SESSION: audio=pulseaudio group=$spid"
 elif [ -n "$audio_port" ]; then echo 'GUI_SESSION: audio=unavailable (Desktop > Install Desktop Support adds sound)'; fi
 # Terminals of the same account join this desktop (DISPLAY, X authority,
@@ -297,10 +308,10 @@ elif [ "$mode" = desktop ]; then
     # Desktop components and everything launched from the desktop inherit the
     # graphics routing; Xvfb and x11vnc above were started without it.
     ( . ./gpu-env.sh; lr_gpu_route "$LR_GUI_GPU_MODE" "$PWD" "$session/gpu-stats"
-      exec /bin/busybox setsid /bin/sh -c 'echo $$ > "$1/application-group"; exec /bin/sh ./desktop-components.sh "$1"' sh "$session" ) > "$session/application.log" 2>&1 &
+      exec $setsid_cmd /bin/sh -c 'echo $$ > "$1/application-group"; exec /bin/sh ./desktop-components.sh "$1"' sh "$session" ) > "$session/application.log" 2>&1 &
 else
     [ -f "$session/command.sh" ] || { echo 'GUI_SESSION: launch configuration missing'; exit 8; }
-    /bin/busybox setsid /bin/sh -c 'echo $$ > "$1/application-group"; exec /bin/sh "$1/command.sh"' sh "$session" > "$session/application.log" 2>&1 &
+    $setsid_cmd /bin/sh -c 'echo $$ > "$1/application-group"; exec /bin/sh "$1/command.sh"' sh "$session" > "$session/application.log" 2>&1 &
 fi
 apid=$!
 case "$mode" in custom|desktop) appgroup=$apid;; esac
@@ -315,7 +326,7 @@ application_live() {
     fi
     [ -n "$appgroup" ] && [ "$appgroup" -gt 1 ] || return 1
     [ "$(cat "$session/application-group" 2>/dev/null || true)" = "$appgroup" ] || return 1
-    /bin/busybox kill -0 "-$appgroup" 2>/dev/null || return 1
+    group_kill -0 "-$appgroup" 2>/dev/null || return 1
     # Exclude zombies; a terminated orphan must not keep the viewer alive.
     ps -o pgid,stat | awk -v group="$appgroup" '$1 == group && $2 !~ /^Z/ { alive=1 } END { exit !alive }'
 }

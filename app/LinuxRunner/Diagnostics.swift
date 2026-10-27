@@ -34,7 +34,8 @@ enum DiagnosticPrivacy {
     static func crashOutput(_ input: String) -> String {
         let log = input.lowercased()
         let diagnostic = ["fatal", "assert", "check failed", "error", "warning", "sandbox", "libc++", "terminat", "out_of_range", "string_view::substr"]
-        guard diagnostic.contains(where: log.contains) else { return "[non-diagnostic application output omitted]" }
+        let qtPlatform = ["qt.qpa.", "Could not load the Qt platform plugin", "This application failed to start because no Qt platform plugin", "Available platform plugins are:"]
+        guard diagnostic.contains(where: log.contains) || qtPlatform.contains(where: input.hasPrefix) else { return "[non-diagnostic application output omitted]" }
         return String(redact(input).prefix(640))
     }
     static func applicationExport(_ input: String) -> String {
@@ -42,7 +43,7 @@ enum DiagnosticPrivacy {
         // include diagnostic records, not arbitrary user program output.
         input.split(separator: "\n", omittingEmptySubsequences: false).map { line in
             let s = String(line)
-            let allowed = ["GUI_", "DESKTOP_", "X11_", "FOCUS:", "QT_TEST:", "BROWSER:", "BROWSER_", "FIREFOX_", "[Parent", "Gtk-WARNING", "WARNING", "ERROR", "FATAL", "Crash Annotation", "Xlib:", "xauth:", "QPainter::", "QWidget::", "QEGLPlatformContext:"]
+            let allowed = ["GUI_", "DESKTOP_", "X11_", "FOCUS:", "QT_TEST:", "BROWSER:", "BROWSER_", "FIREFOX_", "[Parent", "Gtk-WARNING", "WARNING", "ERROR", "FATAL", "Crash Annotation", "Xlib:", "xauth:", "QPainter::", "QWidget::", "QEGLPlatformContext:", "qt.qpa.", "Could not load the Qt platform plugin", "This application failed to start because no Qt platform plugin", "Available platform plugins are:"]
             return allowed.contains(where: s.hasPrefix) ? redact(s) : "[unstructured application output omitted]"
         }.joined(separator: "\n")
     }

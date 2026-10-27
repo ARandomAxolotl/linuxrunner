@@ -5,6 +5,8 @@
 #include "kernel/calls.h"
 #include "fs/proc.h"
 #include "platform/platform.h"
+#include <pthread.h>
+#include <stdlib.h>
 
 static int proc_show_version(struct proc_entry *UNUSED(entry), struct proc_data *buf) {
     struct uname uts;
@@ -138,7 +140,7 @@ static void proc_print_escaped(struct proc_data *buf, const char *str) {
     *(at_start) = false; \
 } while (0)
 
-static int proc_show_mounts(struct proc_entry *UNUSED(entry), struct proc_data *buf) {
+int proc_show_mounts(struct proc_entry *UNUSED(entry), struct proc_data *buf) {
     struct mount *mount;
     list_for_each_entry(&mounts, mount, mounts) {
         const char *point = mount->point;
@@ -164,6 +166,111 @@ static int proc_show_mounts(struct proc_entry *UNUSED(entry), struct proc_data *
     return 0;
 }
 
+// /proc/PID/mountinfo (and /proc/self/mountinfo): the same mount table as
+// /proc/mounts in mountinfo(5) form. LinuxRunner has one mount namespace, the
+// root mount is the parent of every other mount, and there are no device
+// numbers, so each mount reports 0:<mount id>. IDs match statx STATX_MNT_ID.
+int proc_show_mountinfo(struct proc_entry *UNUSED(entry), struct proc_data *buf) {
+    struct mount *mount;
+    uint64_t root_id = 0;
+    list_for_each_entry(&mounts, mount, mounts)
+        if (mount->point[0] == '\0') root_id = mount->id;
+    list_for_each_entry(&mounts, mount, mounts) {
+        const char *point = mount->point[0] == '\0' ? "/" : mount->point;
+        proc_printf(buf, "%llu %llu 0:%llu / ", (unsigned long long) mount->id,
+                    (unsigned long long) root_id, (unsigned long long) mount->id);
+        proc_print_escaped(buf, point);
+        proc_printf(buf, " %s", mount->flags & MS_READONLY_ ? "ro" : "rw");
+        if (mount->flags & MS_NOSUID_) proc_printf(buf, ",nosuid");
+        if (mount->flags & MS_NODEV_) proc_printf(buf, ",nodev");
+        if (mount->flags & MS_NOEXEC_) proc_printf(buf, ",noexec");
+        proc_printf(buf, " - %s ", mount->fs->name);
+        proc_print_escaped(buf, mount->source);
+        proc_printf(buf, " %s%s%s\n", mount->flags & MS_READONLY_ ? "ro" : "rw",
+                    strcmp(mount->info, "") != 0 ? "," : "", mount->info);
+    }
+    return 0;
+}
+
+static int proc_show_filesystems(struct proc_entry *UNUSED(entry), struct proc_data *buf) {
+    // The filesystem types LinuxRunner can mount (see fs/ and kernel/fs.c).
+    proc_printf(buf, "nodev\tproc\nnodev\ttmpfs\nnodev\tdevpts\nnodev\tsysfs\n\tfakefs\n\trealfs\n");
+    return 0;
+}
+
+static int proc_show_cmdline(struct proc_entry *UNUSED(entry), struct proc_data *buf) {
+    proc_printf(buf, "linuxrunner\n");
+    return 0;
+}
+
+static int proc_sys_osrelease(struct proc_entry *UNUSED(entry), struct proc_data *buf) {
+    struct uname uts; do_uname(&uts); proc_printf(buf, "%s\n", uts.release); return 0;
+}
+static int proc_sys_ostype(struct proc_entry *UNUSED(entry), struct proc_data *buf) {
+    struct uname uts; do_uname(&uts); proc_printf(buf, "%s\n", uts.system); return 0;
+}
+static int proc_sys_version(struct proc_entry *UNUSED(entry), struct proc_data *buf) {
+    struct uname uts; do_uname(&uts); proc_printf(buf, "%s\n", uts.version); return 0;
+}
+static int proc_sys_hostname(struct proc_entry *UNUSED(entry), struct proc_data *buf) {
+    struct uname uts; do_uname(&uts); proc_printf(buf, "%s\n", uts.hostname); return 0;
+}
+static void proc_print_uuid(struct proc_data *buf, const uint8_t b[16]) {
+    proc_printf(buf, "%02x%02x%02x%02x-%02x%02x-%02x%02x-%02x%02x-%02x%02x%02x%02x%02x%02x\n",
+                b[0], b[1], b[2], b[3], b[4], b[5], b[6], b[7], b[8], b[9], b[10], b[11], b[12], b[13], b[14], b[15]);
+}
+static void proc_random_uuid(uint8_t b[16]) {
+    arc4random_buf(b, 16);
+    b[6] = (b[6] & 0x0f) | 0x40; b[8] = (b[8] & 0x3f) | 0x80;   // RFC 4122 version 4
+}
+static uint8_t proc_boot_id[16];
+static void proc_boot_id_init(void) { proc_random_uuid(proc_boot_id); }
+static int proc_sys_boot_id(struct proc_entry *UNUSED(entry), struct proc_data *buf) {
+    // Stable for the lifetime of this runtime ("boot"), like Linux.
+    static pthread_once_t once = PTHREAD_ONCE_INIT;
+    pthread_once(&once, proc_boot_id_init);
+    proc_print_uuid(buf, proc_boot_id); return 0;
+}
+static int proc_sys_uuid(struct proc_entry *UNUSED(entry), struct proc_data *buf) {
+    uint8_t id[16]; proc_random_uuid(id); proc_print_uuid(buf, id); return 0;
+}
+static int proc_sys_pid_max(struct proc_entry *UNUSED(entry), struct proc_data *buf) {
+    proc_printf(buf, "%d\n", MAX_PID); return 0;
+}
+// Linux DEFAULT_OVERFLOWUID/GID: the id reported for unmapped users (bubblewrap
+// reads these before creating its namespaces).
+static int proc_sys_overflow_id(struct proc_entry *UNUSED(entry), struct proc_data *buf) {
+    proc_printf(buf, "%d\n", 65534); return 0;
+}
+static int proc_sys_file_max(struct proc_entry *UNUSED(entry), struct proc_data *buf) {
+    proc_printf(buf, "%d\n", 1048576); return 0;
+}
+static int proc_sys_nr_open(struct proc_entry *UNUSED(entry), struct proc_data *buf) {
+    proc_printf(buf, "%d\n", 1048576); return 0;
+}
+static struct proc_children proc_sys_kernel_random_children = PROC_CHILDREN({
+    {"boot_id", .show = proc_sys_boot_id},
+    {"uuid", .show = proc_sys_uuid},
+});
+static struct proc_children proc_sys_kernel_children = PROC_CHILDREN({
+    {"hostname", .show = proc_sys_hostname},
+    {"osrelease", .show = proc_sys_osrelease},
+    {"ostype", .show = proc_sys_ostype},
+    {"overflowgid", .show = proc_sys_overflow_id},
+    {"overflowuid", .show = proc_sys_overflow_id},
+    {"pid_max", .show = proc_sys_pid_max},
+    {"random", S_IFDIR, .children = &proc_sys_kernel_random_children},
+    {"version", .show = proc_sys_version},
+});
+static struct proc_children proc_sys_fs_children = PROC_CHILDREN({
+    {"file-max", .show = proc_sys_file_max},
+    {"nr_open", .show = proc_sys_nr_open},
+});
+static struct proc_children proc_sys_children = PROC_CHILDREN({
+    {"fs", S_IFDIR, .children = &proc_sys_fs_children},
+    {"kernel", S_IFDIR, .children = &proc_sys_kernel_children},
+});
+
 static int proc_readlink_thread_self(struct proc_entry *UNUSED(entry), char *buf) {
     sprintf(buf, "%d/task/%d", current->tgid, current->pid);
     return 0;
@@ -174,7 +281,9 @@ extern struct proc_children proc_net_children;
 
 // in alphabetical order
 struct proc_dir_entry proc_root_entries[] = {
+    {"cmdline", .show = proc_show_cmdline},
     {"cpuinfo", .show = proc_show_cpuinfo},
+    {"filesystems", .show = proc_show_filesystems},
     {"ish", S_IFDIR, .children = &proc_ish_children},
     {"loadavg", .show = proc_show_loadavg},
     {"meminfo", .show = proc_show_meminfo},
@@ -182,6 +291,7 @@ struct proc_dir_entry proc_root_entries[] = {
     {"net", S_IFDIR, .children = &proc_net_children},
     {"self", S_IFLNK, .readlink = proc_readlink_self},
     {"stat", .show = proc_show_stat},
+    {"sys", S_IFDIR, .children = &proc_sys_children},
     {"thread-self", S_IFLNK, .readlink = proc_readlink_thread_self},
     {"uptime", .show = proc_show_uptime},
     {"version", .show = proc_show_version},

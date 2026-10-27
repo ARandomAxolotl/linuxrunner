@@ -16,6 +16,7 @@ struct SetupWizardView: View {
     @AppStorage("LinuxRunnerSetup.distribution") private var distribution = "debian"
     @AppStorage("LinuxRunnerSetup.root") private var setupRoot = ""
     @StateObject private var debian = DebianInstaller()
+    @StateObject private var arch = ArchInstaller()
     @State private var username = ""
     @State private var password = ""
     @State private var confirmation = ""
@@ -29,11 +30,11 @@ struct SetupWizardView: View {
         NavigationView {
             Form { content }
                 .navigationTitle(title)
-                .toolbar { ToolbarItem(placement: .cancellationAction) { Button(step == .done ? "Close" : "Later") { dismiss() }.disabled(working != nil) } }
+                .toolbar { ToolbarItem(placement: .cancellationAction) { Button(step == .done ? "Close" : "Later") { dismiss() }.disabled(working != nil || debian.running || arch.running || manager.busy) } }
         }
         .navigationViewStyle(.stack)
         .overlay(alignment: .bottom) { InstallProgressCard() }
-        .interactiveDismissDisabled(working != nil)
+        .interactiveDismissDisabled(working != nil || debian.running || arch.running || manager.busy)
         .onAppear(perform: resume)
     }
 
@@ -49,13 +50,22 @@ struct SetupWizardView: View {
         case .welcome:
             Section { Text("LinuxRunner runs real ARM64 Linux programs on this iPhone with its own interpreter — no virtual machine.")
                 Text("Setup installs Linux, creates your account and prepares the graphical desktop. Everything can be changed later in Settings.").foregroundStyle(.secondary) }
-            if !manager.environments.isEmpty { Section { Text("Your existing environments stay as they are; setup adds a new one.").font(.footnote) } }
+            if !manager.environments.isEmpty { Section { Text("Configure an existing environment or install another distribution. Your files and accounts are preserved.").font(.footnote) } }
             Section { Button("Continue") { stepRaw = SetupStep.distribution.rawValue } }
         case .distribution:
-            Section(footer: Text("Debian has the desktop, browsers, sound and GPU acceleration. Alpine is small and mainly for the terminal.")) {
-                Picker("Distribution", selection: $distribution) { Text("Debian GNU/Linux 13 (ARM64) — recommended").tag("debian"); Text("Alpine Linux 3.24 (ARM64)").tag("alpine") }.pickerStyle(.inline).labelsHidden()
+            Section(footer: Text("Debian is recommended. Arch Linux ARM provides a rolling release with pacman and an experimental X11 desktop. Alpine is small and mainly for the terminal. Wayland is not supported.")) {
+                Picker("Distribution", selection: $distribution) { Text("Debian GNU/Linux 13 (ARM64) — recommended").tag("debian"); Text("Arch Linux ARM (ARM64) — experimental").tag("arch"); Text("Alpine Linux 3.24 (ARM64)").tag("alpine") }.pickerStyle(.inline).labelsHidden()
             }
-            Section { Button("Continue") { stepRaw = SetupStep.install.rawValue } }
+            let installed = manager.environments.filter { ($0.distributionID ?? "alpine") == distribution }
+            if !installed.isEmpty {
+                Section("Already Installed") {
+                    ForEach(installed) { environment in
+                        Button("Configure " + environment.name) { configureExisting(environment) }
+                    }
+                    Text("Uses the existing environment, accounts and files. Switching environments takes effect after relaunch.").font(.footnote).foregroundStyle(.secondary)
+                }
+            }
+            Section { Button(installed.isEmpty ? "Continue" : "Install Another Environment") { stepRaw = SetupStep.install.rawValue } }
         case .install: install
         case .relaunch:
             Section { Text("Linux is installed and selected. Close LinuxRunner completely (swipe it away in the app switcher) and open it again — setup continues with your account.") }
@@ -78,8 +88,8 @@ struct SetupWizardView: View {
         let download = distribution == "debian" ? (manifest?.downloadBytes ?? 0) : 0
         let installed = distribution == "debian" ? (manifest?.installedBytes ?? 0) : alpineBytes * 3
         Section("Storage") {
-            row("Download", distribution == "debian" ? ByteCountFormatter.string(fromByteCount: download, countStyle: .file) : "None (included in the app)")
-            row(distribution == "debian" ? "Installed size" : "Installed size (estimate)", ByteCountFormatter.string(fromByteCount: installed, countStyle: .file))
+            row("Download", distribution == "arch" ? "Calculated from the signed package selection" : distribution == "debian" ? ByteCountFormatter.string(fromByteCount: download, countStyle: .file) : "None (included in the app)")
+            row(distribution == "debian" ? "Installed size" : "Installed size (estimate)", distribution == "arch" ? "At least 1.5 GB free for base installation" : ByteCountFormatter.string(fromByteCount: installed, countStyle: .file))
             row("Available", ByteCountFormatter.string(fromByteCount: free, countStyle: .file))
         }
         if distribution == "debian" {
@@ -88,6 +98,12 @@ struct SetupWizardView: View {
                 else { Button("Install Debian") { startInstall() }.disabled(free < max(Int64(1 << 30), download + installed)) }
                 if let failure = debian.failure { Text(failure).foregroundStyle(.red); Button("Try Again") { startInstall() } }
             } footer: { Text("Official Debian packages, checked against Debian's signed index. The desktop, sound and account tools are added in the next steps.") }
+        } else if distribution == "arch" {
+            Section {
+                if arch.running { Text(arch.message); ProgressView(value: arch.fraction); Button("Cancel", role: .destructive) { arch.cancel() } }
+                else { Button("Install Arch Linux ARM") { startInstall() }.disabled(free < Int64(1_500_000_000)) }
+                if let failure = arch.failure { Text(failure).foregroundStyle(.red); Button("Try Again") { startInstall() } }
+            } footer: { Text("Official signed Arch Linux ARM packages. Verified downloads are kept for retry. First-start configuration finishes before desktop packages are installed.") }
         } else {
             Section { if manager.busy { ProgressView("Unpacking Alpine Linux…") } else { Button("Install Alpine") { startInstall() } }
                 if let error = manager.error { Text(error).foregroundStyle(.red) } }
@@ -118,8 +134,8 @@ struct SetupWizardView: View {
 
     @ViewBuilder private var desktop: some View {
         Section(footer: Text("Installs the display, window manager, panel, file manager and sound once (network needed). Existing settings are kept.")) {
-            HStack { Image(systemName: "checkmark.circle.fill").foregroundStyle(Color.accentColor); Text("LinuxRunner Desktop (Openbox, panel, file manager)") }
-            HStack { Image(systemName: "circle").foregroundStyle(.secondary); VStack(alignment: .leading) { Text("KDE Plasma"); Text("Experimental · install later in Settings › Desktop Environment").font(.caption).foregroundStyle(.secondary) } }
+            HStack { Image(systemName: "checkmark.circle.fill").foregroundStyle(Color.accentColor); Text(LRRuntimeBridge.activeEnvironmentIsArch() ? "LinuxRunner Desktop (Openbox, LXQt panel, PCManFM-Qt)" : "LinuxRunner Desktop (Openbox, panel, file manager)") }
+            HStack { Image(systemName: "circle").foregroundStyle(.secondary); VStack(alignment: .leading) { Text("KDE Plasma"); Text(LRRuntimeBridge.activeEnvironmentIsArch() ? "Unavailable: current Arch Plasma requires Wayland; use the X11 desktop above." : "Experimental · install later in Settings › Desktop Environment").font(.caption).foregroundStyle(.secondary) } }
         }
         Section {
             if desktopReady { Label("Desktop components installed", systemImage: "checkmark") ; Button("Continue") { stepRaw = SetupStep.done.rawValue } }
@@ -133,7 +149,16 @@ struct SetupWizardView: View {
         if step == .relaunch, LRRuntimeBridge.isRunning(), LRRuntimeBridge.activeRootName() == setupRoot { stepRaw = SetupStep.account.rawValue }
     }
 
+    private func configureExisting(_ environment: LinuxEnvironment) {
+        problem = nil; desktopReady = false
+        setupRoot = environment.rootfsName
+        distribution = environment.distributionID ?? "alpine"
+        LRRuntimeBridge.setNextRootName(environment.rootfsName)
+        stepRaw = manager.active(environment) ? SetupStep.account.rawValue : SetupStep.relaunch.rawValue
+    }
+
     private func startInstall() {
+        guard !debian.running, !arch.running, !manager.busy else { return }
         problem = nil
         let known = Set(manager.environments.map(\.rootfsName))
         let finish: (String) -> Void = { root in
@@ -142,6 +167,8 @@ struct SetupWizardView: View {
         }
         if distribution == "debian" {
             debian.install { environment in manager.acceptInstalled(environment); finish(environment.rootfsName) }
+        } else if distribution == "arch" {
+            arch.install { environment in manager.acceptInstalled(environment); finish(environment.rootfsName) }
         } else {
             manager.error = nil; manager.create(name: "Alpine Linux")
             Task { @MainActor in

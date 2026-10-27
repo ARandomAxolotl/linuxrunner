@@ -71,6 +71,8 @@ void cpu() {
     OFFSET(LOCAL, fiber_frame, jit_exit_sp);
     OFFSET(LOCAL, fiber_frame, jit_saved_pc);
     OFFSET(LOCAL, fiber_frame, fault_code);
+    OFFSET(LOCAL, fiber_frame, xzr_read);
+    OFFSET(LOCAL, fiber_frame, xzr_sink);
     OFFSET(LOCAL, fiber_frame, ret_cache);
     OFFSET(CPU, cpu_state, segfault_addr);
     OFFSET(CPU, cpu_state, segfault_was_write);

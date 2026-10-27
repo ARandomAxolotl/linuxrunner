@@ -1,22 +1,21 @@
-LinuxRunner 1.0.0 source distribution
+LinuxRunner 1.0.1 source distribution
 
-Source and license assets are distributed alongside the unsigned IPA at:
-https://github.com/mxhm11cr/LinuxRunner/releases/tag/v1.0.0
+Release: https://github.com/mxhm11cr/LinuxRunner/releases/tag/v1.0.1
 
-LinuxRunner-1.0.0-source.tar.gz contains the application source, four pinned
-build dependencies, matching Alpine package recipes and checksum-verified
-source inputs for all packages in the bundled root filesystem, and the
-matching Ghostty Web and Ghostty source archives. SOURCE_CONTENTS.txt in the
-archive explains its layout. Minimal shallow Git metadata contains only the
-public snapshot and pinned dependency snapshots, allowing the existing build
-scripts to resolve their source revisions without private workspace history.
+LinuxRunner-1.0.1-source.tar.gz contains the application and build scripts,
+four exact dependency snapshots, the bundled Alpine packages' matching recipes
+and checksum-verified source inputs, and matching Ghostty Web/Ghostty sources.
+SOURCE_CONTENTS.txt and SOURCE_MANIFEST.json describe the archive.
 
-LICENSES.txt contains the project license declarations, full GNU GPL texts
-and the bundled component notices. SHA256SUMS covers all attached release
-files. GitHub automatic source archives do not include submodule contents;
-use the dependency-inclusive source asset for the packaged source distribution.
+Minimal shallow Git snapshots allow build scripts to resolve revisions without
+private development history or credentials. The unused deps/linux pin is retained
+but its checkout is not needed by the application release scheme.
 
-The original application release revision and upstream lineage remain in
-SOURCE_ORIGIN.txt. The released IPA is unsigned and must be signed before
-installation. No signing certificate, private key, or provisioning profile
-is part of this source distribution.
+LICENSES.txt combines the application declarations and third-party notices.
+SHA256SUMS covers the IPA, corresponding-source archive and license notices.
+GitHub automatic source archives omit submodule contents; use the attached source
+asset for the complete packaged source distribution.
+
+The IPA has an ad-hoc signature but no Apple provisioning profile. It requires a
+compatible signing/provisioning method for ordinary physical-device installation.
+No certificate, private key or provisioning profile is part of the source archive.

@@ -626,6 +626,19 @@ static int proc_pid_cwd_readlink(struct proc_entry *entry, char *buf) {
 }
 
 
+// One filesystem root for every process (no chroot/pivot_root namespaces).
+static int proc_pid_root_readlink(struct proc_entry *entry, char *buf) {
+    struct task *task = proc_get_task(entry);
+    if (task == NULL)
+        return _ESRCH;
+    bool allowed = task_may_inspect(task);
+    proc_put_task(task);
+    if (!allowed)
+        return _EACCES;
+    strcpy(buf, "/");
+    return 0;
+}
+
 struct proc_children proc_pid_children = PROC_CHILDREN({
     {"auxv", .show = proc_pid_auxv_show},
     {"cmdline", .show = proc_pid_cmdline_show},
@@ -637,11 +650,14 @@ struct proc_children proc_pid_children = PROC_CHILDREN({
     {"fdinfo", S_IFDIR | 0500, .readdir = proc_pid_fdinfo_readdir},
     {"gid_map", S_IFREG | 0644, .show = proc_pid_gid_map_show, .pwrite = proc_pid_gid_map_write},
     {"maps", .show = proc_pid_maps_show},
+    {"mountinfo", .show = proc_show_mountinfo},
+    {"mounts", .show = proc_show_mounts},
     // 0600 like Linux; access also requires ptrace-style inspection rights.
     {"mem", S_IFREG | 0600, .pread = proc_pid_mem_pread, .pwrite = proc_pid_mem_pwrite,
         .seek = proc_pid_mem_seek},
     {"ns", S_IFDIR | 0511, .children = &proc_pid_ns_children},
     {"oom_score_adj", S_IFREG | 0644, .show = proc_pid_oom_score_adj_show, .pwrite = proc_pid_oom_score_adj_write},
+    {"root", S_IFLNK, .readlink = proc_pid_root_readlink},
     {"setgroups", S_IFREG | 0644, .show = proc_pid_setgroups_show, .pwrite = proc_pid_setgroups_write},
     {"stat", .show = proc_pid_stat_show},
     {"statm", .show = proc_pid_statm_show},

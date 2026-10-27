@@ -38,6 +38,12 @@ void LRSetDatalessMaterialization(void);
 + (int)prepareExchange:(NSString *)root;
 + (BOOL)assembleDebianPackages:(NSArray<NSString *> *)packages toArchive:(NSURL *)archive progress:(void (^)(double))progress cancel:(BOOL (^)(void))cancel error:(NSError **)error;
 + (BOOL)importVerifiedEnvironment:(NSURL *)archive root:(NSString *)root sha256:(NSString *)sha256 progress:(void (^)(double, NSString *))progress cancel:(BOOL (^)(void))cancel error:(NSError **)error;
+// Arch Linux ARM installer: repository database text (see lr_arch_read_database),
+// assembly of authenticated packages, and import with explicit metadata.
++ (nullable NSString *)readArchDatabase:(NSURL *)database error:(NSError **)error;
++ (BOOL)assembleArchPackages:(NSArray<NSString *> *)packages localNames:(NSArray<NSString *> *)names localDescriptions:(NSArray<NSString *> *)descriptions toArchive:(NSURL *)archive progress:(void (^)(double))progress cancel:(BOOL (^)(void))cancel error:(NSError **)error;
++ (BOOL)importVerifiedEnvironment:(NSURL *)archive root:(NSString *)root sha256:(NSString *)sha256 metadata:(NSDictionary<NSString *, NSString *> *)metadata progress:(void (^)(double, NSString *))progress cancel:(BOOL (^)(void))cancel error:(NSError **)error;
++ (BOOL)activeEnvironmentIsArch;
 + (BOOL)activeEnvironmentIsDebian;
 + (NSDictionary *)probeJITPermissions;
 + (void)createEnvironment:(NSString *)root completion:(void (^)(NSError * _Nullable))completion;

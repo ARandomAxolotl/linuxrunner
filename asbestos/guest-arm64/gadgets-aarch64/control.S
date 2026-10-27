@@ -38,13 +38,11 @@
 #else
     tbnz \reg, #63, \unchained_label
     // Chained fast path — poke check + periodic timer
-    ldr x11, [\reg, #(-FIBER_BLOCK_code + FIBER_BLOCK_addr)]
+    load_block_addr x11, \reg
     str x11, [_cpu, #CPU_pc]
     // Increment cycle counter; exit to main loop every 1024 cycles for timer check
-    ldr w8, [_cpu, #CPU_cycle]
-    add w8, w8, #1
-    str w8, [_cpu, #CPU_cycle]
-    tst w8, #0x3ff
+    add _cycle_w, _cycle_w, #1
+    tst _cycle_w, #0x3ff
     b.eq 7778f
     // Check poke flag
     ldr x8, [_cpu, #CPU_poked_ptr]
@@ -281,10 +279,8 @@ indirect_cache_dispatch:
     cmp x11, x10
     b.ne 8f
     // Timer: same cycle accounting as a chained branch
-    ldr w8, [_cpu, #CPU_cycle]
-    add w8, w8, #1
-    str w8, [_cpu, #CPU_cycle]
-    tst w8, #0x3ff
+    add _cycle_w, _cycle_w, #1
+    tst _cycle_w, #0x3ff
     b.eq 8f
     add _pc, x9, #FIBER_BLOCK_code
     b fiber_ret_chain

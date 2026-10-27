@@ -146,5 +146,7 @@ struct statx_ {
 } __attribute__((packed));
 
 #define STATX_BASIC_STATS_ 0x7ff
+#define STATX_MNT_ID_ 0x1000
+#define STATX_ATTR_MOUNT_ROOT_ 0x2000
 
 #endif

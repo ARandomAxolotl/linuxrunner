@@ -44,17 +44,17 @@
     },
     {
       "name": "desktop-components.sh",
-      "sha256": "ec0355a52eb09d180375fa547104664e07bf035df352d9972006b5d5bec84d60",
+      "sha256": "ce566c57a2d1ff0d35fffaa2d7e300aa0ee561ae9e8ea08b2cd14adc4cdb2cd3",
       "mode": "0755"
     },
     {
       "name": "desktop-configure.sh",
-      "sha256": "30b0ed534393bc902cd899241827e3dc848ee134b18670d7713f84bd34b6f1d3",
+      "sha256": "e4d27e9ec745394525cab88950cd597013fbcd0b8964ba981aee0dc3083c8833",
       "mode": "0755"
     },
     {
       "name": "desktop-env.sh",
-      "sha256": "acd8444f73e2660dae403a2d209dbdb6bf3ff9060953609d6aaa512eed0a62ea",
+      "sha256": "182d7b1225728db5e944c1b79446e0a9be6769aea329db8f476cedb2b2112503",
       "mode": "0755"
     },
     {
@@ -79,17 +79,22 @@
     },
     {
       "name": "desktop-probe.c",
-      "sha256": "b601181b1da527b1b07e606efe5e519648e58ec018b43e6c89162124dc84114f",
+      "sha256": "7fdf67c4c34caa0e4608fe919244e32d20dd5ee01e35c6d2930d0d74541852ac",
       "mode": "0644"
     },
     {
       "name": "desktop-profile.sh",
-      "sha256": "1334820608c3683a5742e875779b809d63c4e744380c13a491857fcfa9d96f90",
+      "sha256": "848780e2afe46b2852da846d4956369a4f32831e162bc142d0643d3b41c81d6a",
       "mode": "0755"
     },
     {
+      "name": "desktop-qt-panel.conf",
+      "sha256": "fdac5e075611812c9cdcd470e05f5e45855906aa2b83b87ef41888e32f77f3ae",
+      "mode": "0644"
+    },
+    {
       "name": "desktop-report.sh",
-      "sha256": "8f10f37644724b261bb24c9c5a9d57077969830ef6fd28ae5fe799f47bbce91d",
+      "sha256": "9269a09a176f7ff42b2c186f5df9ddfcaeeb64e49953cb9f6eb48171f81611af",
       "mode": "0755"
     },
     {
@@ -284,32 +289,32 @@
     },
     {
       "name": "install-browser.sh",
-      "sha256": "4e52e0ddf4c2cf8fbee1a4de40fd8b476f18af3c0625282a97be46dee74c7230",
+      "sha256": "0da2591d7a81f506375d3dd3461e87f67df8aaf76a9ef4a7330d5388a55b7583",
       "mode": "0755"
     },
     {
       "name": "install-desktop.sh",
-      "sha256": "f2f8482e5002aab33aecc8c3127cf7fdf436a11b5e6edba61178f1e021108b2f",
+      "sha256": "1ace939e1324c10209e1806eac3e282821326de462b2f0e0c015c4f6198bfa8f",
       "mode": "0755"
     },
     {
       "name": "install-qt.sh",
-      "sha256": "c1c9bdd091916067b811fcc53dba8c221a2fff686a3c84433e618b7ecb5cbcbf",
+      "sha256": "b8918a3449f41fbfa2adcd8ec777b6dedbde064e2dea8d91eeeeb004e24fe583",
       "mode": "0755"
     },
     {
       "name": "install.sh",
-      "sha256": "e10f107f10f382a694186f3711ae3df3ce76c200a6fec6b1a22a77e4ee9a25da",
+      "sha256": "8be28596af33c4815fbe4991c15ef82353a7a79a3d8b67745104463f8a3b4729",
       "mode": "0755"
     },
     {
       "name": "installer-run.sh",
-      "sha256": "c16b56c3c8d2c0abfdf02d6947d41f14615d8172792f2799a01c12aab556fcb2",
+      "sha256": "214fb1947abe313d018e59f1c43976e7c4298b6ed65d800e92516688e3d1c889",
       "mode": "0755"
     },
     {
       "name": "launch.sh",
-      "sha256": "e2c5eb16c07eabbc714ecb2cce9c5d8f7a11ece0743e8666bcdf63a0f20848cf",
+      "sha256": "f99477ea215599ae4ff142c5fec379b8e7fb0559c9040fa5887914d20683a335",
       "mode": "0755"
     },
     {
@@ -359,12 +364,17 @@
     },
     {
       "name": "package-lock.sh",
-      "sha256": "4209c738b63cf02adb6d6afdf50a3eb38ef4c9bf1aa47acaf83e7c5631f4a283",
+      "sha256": "513808ba93c9166d5497737516fb0ea342aef1268edb958e3b95455c44ce9a25",
       "mode": "0755"
     },
     {
       "name": "package-manager.sh",
-      "sha256": "f81ac0b8d1560be5ab9a09fc8f5d4a6f1023356a20f9bbe5ca345f502ccd8189",
+      "sha256": "5c038bf464e587f3e98dc4618acba18ade6832baa76409191e30f92fba0fac1c",
+      "mode": "0755"
+    },
+    {
+      "name": "pacman-recover.sh",
+      "sha256": "f19a0c59f860067490f167502d8e33bd0a810f45182d67c52dc3cbac6fcccdfe",
       "mode": "0755"
     },
     {
@@ -384,7 +394,7 @@
     },
     {
       "name": "session.sh",
-      "sha256": "d78f558e974a9c5955525bc503e07748ce5e034df58d7b645cd4f683f71cfe01",
+      "sha256": "43db899d928dac3810c89d9b6ef897d9e023689a791fdb09f707814244a55e45",
       "mode": "0755"
     },
     {
@@ -399,7 +409,7 @@
     },
     {
       "name": "support-common.sh",
-      "sha256": "0b9fd0101af0f56b279cf93d13bee70320789aac50303cbfaed4026fe74edc9e",
+      "sha256": "9d4a856a31777ee7cd7ac6b2b0de9c97b86812616404d6d61e44edcabd167091",
       "mode": "0755"
     },
     {

@@ -41,6 +41,7 @@ struct tty *tty_alloc(struct tty_driver *driver, int type, int num) {
     // Linux tty_std_termios: B38400 | CS8 | CREAD | HUPCL. A speed of B0 means
     // "hang up" to programs that check it (cfgetospeed), and CS5 is 5-bit data.
     tty->termios.cflags = 0000017 /* B38400 */ | 0000060 /* CS8 */ | 0000200 /* CREAD */ | 0002000 /* HUPCL */;
+    tty->ispeed = tty->ospeed = 38400;
     tty->termios.lflags = ISIG_ | ICANON_ | ECHO_ | ECHOE_ | ECHOK_ | ECHOCTL_ | ECHOKE_ | IEXTEN_;
     // from include/asm-generic/termios.h
     memcpy(tty->termios.cc, "\003\034\177\025\004\0\1\0\021\023\032\0\022\017\027\026\0\0\0", 19);
@@ -610,6 +611,8 @@ static ssize_t tty_ioctl_size(int cmd) {
     switch (cmd) {
         case TCGETS_: case TCSETS_: case TCSETSF_: case TCSETSW_:
             return sizeof(struct termios_);
+        case TCGETS2_: case TCSETS2_: case TCSETSF2_: case TCSETSW2_:
+            return sizeof(struct termios2_);
         case TIOCGWINSZ_: case TIOCSWINSZ_:
             return sizeof(struct winsize_);
         case TIOCGPGRP_: case TIOCSPGRP_:
@@ -684,6 +687,24 @@ error_no_ctrl_tty:
     return err;
 }
 
+static dword_t tty_baud_rate(dword_t code) {
+    static const dword_t rates[] = {0, 50, 75, 110, 134, 150, 200, 300,
+        600, 1200, 1800, 2400, 4800, 9600, 19200, 38400,
+        0 /* BOTHER: numeric rate */, 57600, 115200, 230400, 460800, 500000,
+        576000, 921600, 1000000, 1152000, 1500000, 2000000, 2500000,
+        3000000, 3500000, 4000000};
+    unsigned index = (code & 15) + ((code & 0x1000) ? 16 : 0);
+    return rates[index];
+}
+
+static void tty_update_baud_rates(struct tty *tty) {
+    dword_t output = tty->termios.cflags & 0x100f;
+    dword_t input = (tty->termios.cflags >> 16) & 0x100f;
+    if (output != 0x1000) tty->ospeed = tty_baud_rate(output);
+    if (!input) tty->ispeed = tty->ospeed;
+    else if (input != 0x1000) tty->ispeed = tty_baud_rate(input);
+}
+
 // These ioctls are separated out because they have to operate on the slave
 // side of a pseudoterminal pair even if the master is specified
 static int tty_mode_ioctl(struct tty *in_tty, int cmd, void *arg) {
@@ -698,6 +719,13 @@ static int tty_mode_ioctl(struct tty *in_tty, int cmd, void *arg) {
         case TCGETS_:
             *(struct termios_ *) arg = tty->termios;
             break;
+        case TCGETS2_: {
+            struct termios2_ *termios = arg;
+            termios->termios = tty->termios;
+            termios->ispeed = tty->ispeed;
+            termios->ospeed = tty->ospeed;
+            break;
+        }
         case TCSETSF_:
             tty->bufsize = 0;
             notify(&tty->consumed);
@@ -706,7 +734,22 @@ static int tty_mode_ioctl(struct tty *in_tty, int cmd, void *arg) {
             // we have no output buffer currently
         case TCSETS_:
             tty->termios = *(struct termios_ *) arg;
+            tty_update_baud_rates(tty);
             break;
+        case TCSETSF2_:
+            tty->bufsize = 0;
+            notify(&tty->consumed);
+            fallthrough;
+        case TCSETSW2_:
+            // Like TCSETSW, there is no output buffer to drain.
+        case TCSETS2_: {
+            const struct termios2_ *termios = arg;
+            tty->termios = termios->termios;
+            tty->ispeed = termios->ispeed;
+            tty->ospeed = termios->ospeed;
+            tty_update_baud_rates(tty);
+            break;
+        }
 
         case TIOCGWINSZ_:
             *(struct winsize_ *) arg = tty->winsize;

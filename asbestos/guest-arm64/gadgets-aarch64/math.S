@@ -16201,3 +16201,111 @@ make_fcvt_fixed_vec fcvtzu, fcvtzu
 // SCVTF/UCVTF must use the guest rounding mode and sticky exception flags.
 make_fcvt_fixed_vec scvtf, scvtf, 1
 make_fcvt_fixed_vec ucvtf, ucvtf, 1
+
+/*
+ * Specialized three-register data processing (shifted register), one gadget
+ * per operation x width x shift type, with no run-time decoding branches.
+ * Replaces the generic add_reg/sub_reg/adds_reg/subs_reg and *_reg_shifted
+ * gadgets, which test width, shift type, inversion and XZR on every execution.
+ *
+ * Code stream: [gadget addr][rd_off | rn_off<<16 | rm_off<<32 | amount<<48]
+ * Operands are byte offsets from the frame (_cpu): a guest register is
+ * CPU_x0 + 8*n; XZR reads LOCAL_xzr_read (always 0) and XZR/discarded results
+ * write LOCAL_xzr_sink. Shifted-register ADD/SUB treat register 31 as XZR, as
+ * do the logical forms, so every register combination takes the same path.
+ * The variable shift by `amount` is exact: gen.c only emits amount < width.
+ * 32-bit forms write the W result, which zero-extends into the X slot.
+ * Flag-setting forms store NZCV after the result (store_flags uses x17).
+ */
+.macro dp3 name, op, width, shift, flags
+.gadget \name
+    ldr x8, [_pc]
+    add _pc, _pc, #8
+    ubfx x10, x8, #16, #16
+    ubfx x11, x8, #32, #16
+    ldr x15, [_cpu, x10]
+    ldr x16, [_cpu, x11]
+    lsr x12, x8, #48
+    and x9, x8, #0xffff
+.if \width == 64
+    \shift x16, x16, x12
+    \op x13, x15, x16
+.else
+    \shift w16, w16, w12
+    \op w13, w15, w16
+.endif
+    str x13, [_cpu, x9]
+.if \flags
+    store_flags
+.endif
+    gret
+.endm
+
+.irp w, 32, 64
+.irp sh, lslv, lsrv, asrv
+dp3 dp3_add_\w\()_\sh, add, \w, \sh, 0
+dp3 dp3_sub_\w\()_\sh, sub, \w, \sh, 0
+dp3 dp3_adds_\w\()_\sh, adds, \w, \sh, 1
+dp3 dp3_subs_\w\()_\sh, subs, \w, \sh, 1
+.endr
+.irp sh, lslv, lsrv, asrv, rorv
+dp3 dp3_and_\w\()_\sh, and, \w, \sh, 0
+dp3 dp3_bic_\w\()_\sh, bic, \w, \sh, 0
+dp3 dp3_orr_\w\()_\sh, orr, \w, \sh, 0
+dp3 dp3_orn_\w\()_\sh, orn, \w, \sh, 0
+dp3 dp3_eor_\w\()_\sh, eor, \w, \sh, 0
+dp3 dp3_eon_\w\()_\sh, eon, \w, \sh, 0
+dp3 dp3_ands_\w\()_\sh, ands, \w, \sh, 1
+dp3 dp3_bics_\w\()_\sh, bics, \w, \sh, 1
+.endr
+.endr
+
+/*
+ * Immediate forms with operands resolved at translation time (byte-offset
+ * register operands as in dp3; XZR via LOCAL_xzr_read / LOCAL_xzr_sink).
+ *
+ * set_imm   MOVZ/MOVN (any width): [gadget][rd_off][value]   value precomputed,
+ *           32-bit forms already zero-extended.
+ * movk_ins  MOVK: [gadget][rd_off][keep_mask][value]  rd = (rd & keep) | value;
+ *           the 32-bit keep mask also clears bits 63:32.
+ * dpi_*     AND/ORR/EOR/ANDS (immediate): [gadget][rd_off | rn_off<<16][imm].
+ *           gen.c keeps AND/ORR/EOR with rd == 31 (SP destination) generic.
+ */
+.gadget set_imm
+    ldp x8, x9, [_pc], #16
+    str x9, [_cpu, x8]
+    gret
+
+.gadget movk_ins
+    ldp x8, x9, [_pc], #16
+    ldr x12, [_pc], #8
+    ldr x15, [_cpu, x8]
+    and x15, x15, x9
+    orr x15, x15, x12
+    str x15, [_cpu, x8]
+    gret
+
+.macro dpi name, op, width, flags
+.gadget \name
+    ldp x8, x9, [_pc], #16
+    ubfx x10, x8, #16, #16
+    and x11, x8, #0xffff
+    ldr x15, [_cpu, x10]
+.if \width == 64
+    \op x13, x15, x9
+.else
+    \op w13, w15, w9
+.endif
+    str x13, [_cpu, x11]
+.if \flags
+    store_flags
+.endif
+    gret
+.endm
+
+.irp w, 32, 64
+dpi dpi_and_\w, and, \w, 0
+dpi dpi_orr_\w, orr, \w, 0
+dpi dpi_eor_\w, eor, \w, 0
+dpi dpi_ands_\w, ands, \w, 1
+.endr

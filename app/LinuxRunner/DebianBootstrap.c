@@ -192,3 +192,165 @@ int lr_debian_bootstrap(const char *const *packages,size_t count,const char *out
     struct lr_debian_bootstrap_options options={.progress=progress,.context=context};
     return lr_debian_bootstrap_diagnosed(packages,count,output,&options,error,error_size);
 }
+
+// ---- Arch Linux ARM ----------------------------------------------------------
+
+static const char *const arch_metadata[] = {".PKGINFO", ".MTREE", ".BUILDINFO", ".CHANGELOG", ".INSTALL", NULL};
+
+static int arch_is_metadata(const char *path) {
+    for (int i = 0; arch_metadata[i]; i++) if (!strcmp(path, arch_metadata[i])) return 1;
+    return 0;
+}
+
+static int arch_dir(struct bootstrap *s, struct archive *a, const char *path) {
+    struct archive_entry *e = archive_entry_new(); if (!e) return fail(s, NULL, "allocation", "archive_entry_new", ENOMEM, NULL);
+    archive_entry_set_pathname(e, path); archive_entry_set_filetype(e, AE_IFDIR); archive_entry_set_perm(e, 0755);
+    archive_entry_set_uid(e, 0); archive_entry_set_gid(e, 0); archive_entry_set_mtime(e, 0, 0);
+    int r = archive_write_header(a, e); archive_entry_free(e);
+    return r == ARCHIVE_OK ? 0 : fail(s, a, "filesystem", "archive_write_dir", EIO, NULL);
+}
+
+int lr_arch_read_database(const char *path, char **out, size_t *out_size, char *error, size_t error_size) {
+    struct bootstrap state = {.index = -1, .stage = "database", .error = error, .error_size = error_size}; struct bootstrap *s = &state;
+    if (error && error_size) *error = 0;
+    *out = NULL; *out_size = 0;
+    struct archive *a = reader(s, 0); if (!a) return s->result;
+    if (archive_read_open_filename(a, path, 65536) != ARCHIVE_OK) { fail(s, a, "archive_open", "database_open", EBADMSG, NULL); archive_read_free(a); return s->result; }
+    char *buf = NULL; size_t size = 0, capacity = 0; struct archive_entry *e; int step;
+    char current[256] = {0};
+    while ((step = next(s, a, &e, 0)) == ARCHIVE_OK) {
+        const char *name = archive_entry_pathname(e);
+        const char *slash = strchr(name, '/');
+        if (!slash || archive_entry_filetype(e) != AE_IFREG || (strcmp(slash + 1, "desc") && strcmp(slash + 1, "depends"))) continue;
+        size_t len; char *content = member(s, a, &len); if (!content) break;
+        size_t dirlen = (size_t)(slash - name); if (dirlen >= sizeof current) dirlen = sizeof current - 1;
+        int new_entry = strncmp(current, name, dirlen) || current[dirlen] != 0;
+        size_t need = size + len + dirlen + 4;
+        if (need > capacity) { size_t c = capacity ? capacity : 1 << 20; while (c < need) c *= 2; char *g = realloc(buf, c); if (!g) { free(content); fail(s, NULL, "allocation", "database_buffer", ENOMEM, NULL); break; } buf = g; capacity = c; }
+        if (new_entry) { memcpy(current, name, dirlen); current[dirlen] = 0; buf[size++] = 0x1e; memcpy(buf + size, name, dirlen); size += dirlen; buf[size++] = '\n'; }
+        memcpy(buf + size, content, len); size += len; buf[size++] = '\n';
+        free(content);
+        if (size > TOTAL_LIMIT) { fail(s, NULL, "validation", "database_size", EFBIG, "Repository database too large"); break; }
+    }
+    archive_read_free(a);
+    if (s->result || step != ARCHIVE_EOF) { if (!s->result) fail(s, NULL, "archive_parse", "database_read", EBADMSG, NULL); free(buf); return s->result; }
+    *out = buf; *out_size = size; return 0;
+}
+
+int lr_arch_bootstrap_diagnosed(const char *const *packages, const char *const *local_names, const char *const *local_descs,
+                                size_t count, const char *output, const struct lr_debian_bootstrap_options *options,
+                                char *error, size_t error_size) {
+    struct bootstrap state = {.options = options, .index = -1, .count = count, .stage = "writer_setup", .error = error, .error_size = error_size}; struct bootstrap *s = &state;
+    if (error && error_size) *error = 0;
+    struct archive *writer = archive_write_new(); if (!writer) { fail(s, NULL, "allocation", "archive_write_new", ENOMEM, NULL); return s->result; }
+    uint64_t total = 0;
+    log_event(s, 2, "operation=start distribution=arch libarchive=\"%s\" extraction=guest_tar_only", archive_version_string());
+    if (archive_write_set_format_pax_restricted(writer) != ARCHIVE_OK || archive_write_set_format_option(writer, "pax", "hdrcharset", "BINARY") != ARCHIVE_OK ||
+        archive_write_add_filter_gzip(writer) != ARCHIVE_OK) { fail(s, writer, "codec_configuration", "writer_configure", ENOTSUP, NULL); goto done; }
+    if (archive_write_open_filename(writer, output) != ARCHIVE_OK) { fail(s, writer, "filesystem", "writer_open", archive_errno(writer) > 0 ? archive_errno(writer) : EIO, NULL); goto done; }
+    if (arch_dir(s, writer, ".") || arch_dir(s, writer, "var") || arch_dir(s, writer, "var/lib") || arch_dir(s, writer, "var/lib/pacman") ||
+        arch_dir(s, writer, "var/lib/pacman/local") || arch_dir(s, writer, "usr") || arch_dir(s, writer, "usr/lib") || arch_dir(s, writer, "usr/lib/linuxrunner")) goto done;
+    for (size_t i = 0; i < count; i++) {
+        s->index = (long)i; s->stage = "package_open"; s->member[0] = s->entry[0] = s->destination[0] = 0;
+        text(s->package, sizeof s->package, local_names[i]);
+        if (strspn(local_names[i], "abcdefghijklmnopqrstuvwxyz0123456789+.-_:@") != strlen(local_names[i]) || !*local_names[i]) { fail(s, NULL, "validation", "package_name", EINVAL, "Invalid package name"); goto done; }
+        if (options && options->progress && options->progress(options->context, i, count)) { fail(s, NULL, "cancellation", "progress_cancel", ECANCELED, "Installation cancelled by user"); goto done; }
+        struct stat st; if (lstat(packages[i], &st) || !S_ISREG(st.st_mode)) { fail(s, NULL, "filesystem", "package_stat", errno ? errno : EINVAL, "Package path must be a readable regular file, not a symlink"); goto done; }
+        struct archive *pkg = reader(s, 0); if (!pkg) goto done;
+        if (archive_read_open_filename(pkg, packages[i], 65536) != ARCHIVE_OK) { fail(s, pkg, "archive_open", "package_open", EBADMSG, NULL); archive_read_free(pkg); goto done; }
+        char *list = NULL, *install = NULL; size_t list_size = 0, install_size = 0; struct archive_entry *entry; int step; size_t entries = 0;
+        s->stage = "payload_extract";
+        while ((step = next(s, pkg, &entry, options && options->trace_entries)) == ARCHIVE_OK) {
+            const char *path = archive_entry_pathname(entry); while (!strncmp(path, "./", 2)) path += 2;
+            text(s->destination, sizeof s->destination, path);
+            if (!strcmp(path, ".INSTALL")) { install = member(s, pkg, &install_size); if (!install) goto package_error; continue; }
+            if (arch_is_metadata(path)) { if (archive_read_data_skip(pkg) != ARCHIVE_OK) { fail(s, pkg, "archive_parse", "skip_metadata", EBADMSG, NULL); goto package_error; } continue; }
+            if (!safe_path(path) || (archive_entry_hardlink(entry) && !safe_path(archive_entry_hardlink(entry)))) { fail(s, NULL, "validation", "payload_path", EINVAL, "Unsafe guest path/hardlink; host extraction refused"); goto package_error; }
+            la_int64_t entry_size = archive_entry_size(entry);
+            if (entry_size < 0 || (uint64_t)entry_size > TOTAL_LIMIT * 2 - total) { fail(s, NULL, "validation", "total_size", EFBIG, "Guest payload exceeds 2 GiB limit"); goto package_error; }
+            total += (uint64_t)entry_size;
+            size_t n = strlen(path) + 2; char *l = realloc(list, list_size + n); if (!l) { fail(s, NULL, "allocation", "file_list", ENOMEM, NULL); goto package_error; }
+            list = l; list_size += snprintf(list + list_size, n, "%s\n", path);
+            archive_entry_set_mtime(entry, 0, 0);
+            if (archive_write_header(writer, entry) != ARCHIVE_OK) { fail(s, writer, "filesystem", "payload_write_header", archive_errno(writer) > 0 ? archive_errno(writer) : EIO, NULL); goto package_error; }
+            char buffer[65536]; la_ssize_t bytes;
+            while ((bytes = archive_read_data(pkg, buffer, sizeof buffer)) > 0) {
+                if (cancelled(s)) goto package_error;
+                if (archive_write_data(writer, buffer, bytes) != bytes) { fail(s, writer, "filesystem", "payload_write_data", archive_errno(writer) > 0 ? archive_errno(writer) : EIO, NULL); goto package_error; }
+            }
+            if (bytes < 0) { fail(s, pkg, "decompression", "payload_read_data", EBADMSG, NULL); goto package_error; }
+            entries++;
+        }
+        if (step != ARCHIVE_EOF) goto package_error;
+        archive_read_free(pkg); pkg = NULL;
+        log_event(s, 2, "operation=payload_complete entries=%zu install_script=%d total_guest_bytes=%llu result=PASS", entries, install != NULL, (unsigned long long)total);
+        s->stage = "local_database";
+        char dir[512], dest[600];
+        snprintf(dir, sizeof dir, "var/lib/pacman/local/%s", local_names[i]);
+        if (arch_dir(s, writer, dir)) goto package_error;
+        snprintf(dest, sizeof dest, "%s/desc", dir); if (file(s, writer, dest, local_descs[i], strlen(local_descs[i]), 0644)) goto package_error;
+        {
+            size_t fl = list_size + 16; char *files = malloc(fl); if (!files) { fail(s, NULL, "allocation", "files_db", ENOMEM, NULL); goto package_error; }
+            int fn = snprintf(files, fl, "%%FILES%%\n"); memcpy(files + fn, list ? list : "", list_size); fn += (int)list_size; files[fn++] = '\n';
+            snprintf(dest, sizeof dest, "%s/files", dir); int w = file(s, writer, dest, files, (size_t)fn, 0644); free(files); if (w) goto package_error;
+        }
+        if (install) { snprintf(dest, sizeof dest, "%s/install", dir); if (file(s, writer, dest, install, install_size, 0644)) goto package_error; }
+        free(list); free(install); continue;
+package_error:
+        if (pkg) archive_read_free(pkg); free(list); free(install); goto done;
+    }
+    s->stage = "environment_configuration"; s->entry[0] = s->member[0] = 0;
+#define ARCH_CONFIG(path, value, mode) do { const char *v = (value); if (file(s, writer, path, v, strlen(v), mode)) goto done; } while (0)
+    ARCH_CONFIG("var/lib/pacman/local/ALPM_DB_VERSION", "9\n", 0644);
+    ARCH_CONFIG("etc/hostname", "linuxrunner\n", 0644);
+    ARCH_CONFIG("etc/hosts", "127.0.0.1 localhost linuxrunner\n::1 localhost\n", 0644);
+    ARCH_CONFIG("etc/resolv.conf", "nameserver 1.1.1.1\nnameserver 8.8.8.8\n", 0644);
+    // First boot: what pacman's install scripts and ALPM hooks would have done
+    // (no package manager ran while assembling), then the pacman keyring.
+    ARCH_CONFIG("usr/lib/linuxrunner/initialize-arch.sh",
+        "#!/bin/sh\n"
+        "set -u\n"
+        "mkdir -p /tmp /run /var/lib/linuxrunner /var/cache/pacman/pkg\n"
+        "# Boot and setup may request initialization together. Kernel-released, rootfs-local lock.\n"
+        "[ ! -L /var/lib/linuxrunner/arch-initialize.lock ] || exit 1\n"
+        "exec 8>>/var/lib/linuxrunner/arch-initialize.lock || exit 1\n"
+        "flock 8 || exit 1\n"
+        "chmod 1777 /tmp\n"
+        "[ -f /var/lib/linuxrunner/initialized ] && exit 0\n"
+        "echo 'ARCH_INIT: system users and runtime files'\n"
+        "systemd-sysusers || exit 1\n"
+        "systemd-tmpfiles --create >/dev/null 2>&1\n"
+        "systemd-machine-id-setup >/dev/null 2>&1\n"
+        "ldconfig\n"
+        "echo 'ARCH_INIT: package install scripts'\n"
+        "for d in /var/lib/pacman/local/*/; do\n"
+        " [ -f \"$d/install\" ] || continue\n"
+        " v=$(sed -n '/^%VERSION%$/{n;p;q}' \"$d/desc\")\n"
+        " ( . \"$d/install\"; command -v post_install >/dev/null 2>&1 && post_install \"$v\" ) >/dev/null 2>&1 || echo \"ARCH_INIT: post_install failed: $d\"\n"
+        "done\n"
+        "echo 'ARCH_INIT: pacman download sandbox'\n"
+        "# pacman 7 confines its download process with Landlock and seccomp; LinuxRunner\n"
+        "# implements neither yet, and pacman fails rather than run unconfined. Use the\n"
+        "# documented switches for kernels without them; downloads still run as 'alpm'.\n"
+        "sed -i -e 's/^#DisableSandboxFilesystem$/DisableSandboxFilesystem/' -e 's/^#DisableSandboxSyscalls$/DisableSandboxSyscalls/' /etc/pacman.conf\n"
+        "echo 'ARCH_INIT: pacman mirrors'\n"
+        "# The packaged mirrorlist names only mirror.archlinuxarm.org, a geographic\n"
+        "# redirect. pacman moves to the next Server when a download fails or stalls, so\n"
+        "# list official mirrors after it (packages stay signature-checked); only while\n"
+        "# the list is still the packaged default.\n"
+        "if [ \"$(grep -c '^Server' /etc/pacman.d/mirrorlist)\" = 1 ] && grep -q '^Server = http://mirror.archlinuxarm.org/' /etc/pacman.d/mirrorlist; then\n"
+        " for m in dk.mirror de.mirror fl.us.mirror eu.mirror; do echo \"Server = http://$m.archlinuxarm.org/\\$arch/\\$repo\"; done >> /etc/pacman.d/mirrorlist\n"
+        "fi\n"
+        "echo 'ARCH_INIT: certificates and pacman keyring'\n"
+        "update-ca-trust >/dev/null 2>&1\n"
+        "pacman-key --init >/dev/null 2>&1 || exit 1\n"
+        "pacman-key --populate archlinuxarm >/dev/null 2>&1 || exit 1\n"
+        "touch /var/lib/linuxrunner/initialized\n"
+        "echo 'ARCH_INIT: PASS'\n", 0755);
+    ARCH_CONFIG("usr/lib/linuxrunner/init.sh",
+        "#!/bin/sh\n/usr/lib/linuxrunner/initialize-arch.sh >/var/log/linuxrunner-initialize.log 2>&1\nwhile :; do sleep 3600; done\n", 0755);
+done:
+    if (archive_write_close(writer) != ARCHIVE_OK && !s->result) { s->stage = "writer_close"; fail(s, writer, "filesystem", "archive_write_close", archive_errno(writer) > 0 ? archive_errno(writer) : EIO, NULL); }
+    if (!s->result) log_event(s, 2, "operation=finish distribution=arch result=PASS total_guest_bytes=%llu", (unsigned long long)total);
+    archive_write_free(writer); if (s->result) unlink(output); return s->result;
+}

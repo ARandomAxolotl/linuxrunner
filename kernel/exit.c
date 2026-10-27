@@ -193,6 +193,10 @@ noreturn void do_exit(int status) {
         child->parent = new_parent;
         list_remove(&child->siblings);
         list_add(&new_parent->children, &child->siblings);
+        // PR_SET_PDEATHSIG: the parent thread died. (glycin, systemd tools and
+        // Rust's process spawning rely on this to kill helpers with their owner.)
+        if (child->pdeath_signal && !child->exiting)
+            send_signal(child, child->pdeath_signal, (struct siginfo_) {.sig = child->pdeath_signal, .code = SI_USER_});
     }
 
     if (exit_tgroup(current)) {

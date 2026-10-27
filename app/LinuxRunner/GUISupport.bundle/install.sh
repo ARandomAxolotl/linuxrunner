@@ -12,6 +12,8 @@ elif command -v apt-get >/dev/null; then
     apt-get update
     apt-get install -y --no-install-recommends busybox procps xvfb x11vnc xauth x11-xserver-utils x11-utils x11-apps libx11-dev libxcb1-dev build-essential pkg-config binutils xterm xfonts-base fonts-dejavu-core fontconfig dbus-daemon dbus-x11 librsvg2-common
     dbus-uuidgen --ensure
+elif command -v pacman >/dev/null; then
+    /bin/sh ./desktop-profile.sh repair
 else support_fail GUI_SUPPORT package-manager-unsupported
 fi
 for command in Xvfb x11vnc xauth fc-match gcc pkg-config readelf; do

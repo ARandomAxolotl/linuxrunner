@@ -10,7 +10,7 @@ for p in /proc/[0-9]*; do
     cmd=$( { tr '\000' ' ' < "$p/cmdline"; } 2>/dev/null | cut -c1-100)
     [ -n "$cmd" ] || continue
     case "$cmd" in
-        *Xvfb*|*x11vnc*|*openbox*|*lxpanel*|*pcmanfm*|*xfce4*|*xfconfd*|*dbus-daemon*|*pulseaudio*|*session.sh*|*desktop-components.sh*|*desktop-probe*|*focus-manager*|*window-observer*|*desktop-profile.sh*|*installer-run.sh*|*initialize-debian.sh*|dpkg*|*/dpkg\ *|apt*|*/apt-get*|*/usr/lib/apt/methods/*) ;;
+        *Xvfb*|*x11vnc*|*openbox*|*lxpanel*|*lxqt-panel*|*pcmanfm*|*xfce4*|*xfconfd*|*dbus-daemon*|*pulseaudio*|*session.sh*|*desktop-components.sh*|*desktop-probe*|*focus-manager*|*window-observer*|*desktop-profile.sh*|*installer-run.sh*|*initialize-debian.sh*|*initialize-arch.sh*|*pacman-recover.sh*|*/pacman*|dpkg*|*/dpkg\ *|apt*|*/apt-get*|*/usr/lib/apt/methods/*) ;;
         *) continue;;
     esac
     state=$(sed -n 's/^State:[[:space:]]*//p' "$p/status" 2>/dev/null)
@@ -24,6 +24,17 @@ if [ -e /usr/lib/linuxrunner/initialize-debian.sh ]; then
     echo "ca-certificates=$(grep -c 'BEGIN CERTIFICATE' /etc/ssl/certs/ca-certificates.crt 2>/dev/null || echo 0)"
     echo "dpkg-audit-lines=$(dpkg --audit 2>/dev/null | wc -l)"
 else echo "not debian"; fi
+if command -v pacman >/dev/null 2>&1; then
+    echo "== Arch package health (current)"
+    pacman -Dk 2>&1
+    if [ -e /usr/bin/gcc ]; then pacman -Q gcc 2>&1; pacman -Qo /usr/bin/gcc 2>&1; fi
+    echo "== package recovery history (last 40 records)"
+    tail -n 40 /var/log/linuxrunner-package-recovery.log 2>/dev/null
+    if [ -f /var/lib/linuxrunner/pacman-recovery-required ] && [ ! -L /var/lib/linuxrunner/pacman-recovery-required ]; then
+        echo "== pending package repair"
+        head -c 2048 /var/lib/linuxrunner/pacman-recovery-required
+    fi
+fi
 echo "== x display sockets"
 ls -la /tmp/.X11-unix 2>&1 | tail -n +2
 echo "== time"

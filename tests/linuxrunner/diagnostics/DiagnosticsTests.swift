@@ -1,6 +1,14 @@
 import Foundation
 @main struct Tests {
  static func main() throws {
+    let qpa = "qt.qpa.xcb: could not connect to display :4004"
+    precondition(DiagnosticPrivacy.crashOutput(qpa) == qpa)
+    precondition(DiagnosticPrivacy.applicationExport(qpa) == qpa)
+    let platformFatal = "This application failed to start because no Qt platform plugin could be initialized."
+    precondition(DiagnosticPrivacy.crashOutput(platformFatal) == platformFatal)
+    precondition(DiagnosticPrivacy.applicationExport(platformFatal) == platformFatal)
+    precondition(!DiagnosticPrivacy.crashOutput("qt.qpa.plugin: token=private-value https://example.com/private").contains("private"))
+    precondition(DiagnosticPrivacy.crashOutput(String(repeating: "x", count: 900) + "fatal").count <= 640)
     let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
     defer { try? FileManager.default.removeItem(at: root) }
     let store = try StructuredLogStore(directory: root, maximumBytes: 4096, retainedFiles: 2)

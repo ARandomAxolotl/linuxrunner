@@ -23,10 +23,11 @@ cd "$G"; . ./package-lock.sh; package_lock_acquire >/dev/null 2>&1; sleep 12
 EOS
 sh /tmp/lr-lock-test/installer-run.sh-holder.sh & holder=$!
 sleep 2
-rm -f install-result
+printf "holder-result\n" > install-result
+printf "holder-log\n" > desktop-profile.sh.log
 sh ./installer-run.sh desktop-profile.sh repair > /tmp/lock-test-second.log 2>&1; second=$?
 result=$(cat install-result 2>/dev/null)
 wait "$holder" 2>/dev/null; rm -rf /tmp/lr-lock-test
-[ "$second" = 75 ] && [ "$result" = 75 ] && grep -q 'category=PACKAGE_MANAGER_BUSY' desktop-profile.sh.log; check "second installer reports BUSY with a result (exit=$second result=${result:-none})" $?
+[ "$second" = 75 ] && [ "$result" = holder-result ] && grep -qx holder-log desktop-profile.sh.log && grep -q 'category=PACKAGE_MANAGER_BUSY' /tmp/lock-test-second.log; check "second installer reports BUSY without changing active output (exit=$second result=${result:-none})" $?
 echo "PACKAGE_LOCK_WAIT_TEST $([ $fails = 0 ] && echo PASS || echo FAIL) failures=$fails"
 [ $fails = 0 ]

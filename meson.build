@@ -117,7 +117,7 @@ if get_option('kernel') == 'ish'
         'kernel/calls.c',] + arch_kernel_src + [
         'kernel/memory.c',
         'kernel/user.c',
-        'kernel/vdso.c', vdso,
+        'kernel/vdso.c', vdso_blob,
         'kernel/task.c',
         'kernel/guest_profile.c',
         'kernel/group.c',

@@ -220,7 +220,11 @@ static int proc_readdir(struct fd *fd, struct dir_entry *entry) {
     if (!any_left)
         return 0;
     proc_entry_getname(&proc_entry, entry->name);
-    entry->inode = proc_entry.meta->inode;
+    // Same lazy numbering as proc_lookup (the post-read directory index + 1),
+    // so an entry listed before it was ever looked up still has an inode.
+    if (proc_entry.meta->inode == 0)
+        proc_entry.meta->inode = fd->offset + 1;
+    entry->inode = proc_entry_inode(&proc_entry);
     entry->type = dirent_type_from_mode(proc_entry_mode(&proc_entry));
     proc_entry_cleanup(&proc_entry);
     return 1;

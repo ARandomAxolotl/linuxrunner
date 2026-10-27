@@ -399,6 +399,35 @@ static NSString *desktopRoot;
     [LRDiagnosticCenter flush];
     if(result&&error)*error=lrError(result,[NSString stringWithUTF8String:message]);return result==0;
 }
++ (NSString *)readArchDatabase:(NSURL *)database error:(NSError **)error {
+    char *text=NULL;size_t size=0;char message[1024]={0};
+    int result=lr_arch_read_database(database.fileSystemRepresentation,&text,&size,message,sizeof message);
+    if(result){if(error)*error=lrError(result,[NSString stringWithUTF8String:message]);return nil;}
+    NSString *s=[[NSString alloc] initWithBytesNoCopy:text length:size encoding:NSUTF8StringEncoding freeWhenDone:YES];
+    if(!s){free(text);if(error)*error=lrError(EILSEQ,@"Repository database is not UTF-8");}
+    return s;
+}
++ (BOOL)assembleArchPackages:(NSArray<NSString *> *)packages localNames:(NSArray<NSString *> *)names localDescriptions:(NSArray<NSString *> *)descriptions toArchive:(NSURL *)archive progress:(void (^)(double))progress cancel:(BOOL (^)(void))cancel error:(NSError **)error {
+    if(names.count!=packages.count||descriptions.count!=packages.count){if(error)*error=lrError(EINVAL,@"Package metadata mismatch");return NO;}
+    LRInstallProgress *reporter=[LRInstallProgress new];reporter.progress=^(double value,NSString *message){progress(value);};reporter.cancel=cancel;
+    const char **paths=calloc(packages.count,sizeof(char *)),**nm=calloc(packages.count,sizeof(char *)),**ds=calloc(packages.count,sizeof(char *));
+    if(!paths||!nm||!ds){free(paths);free(nm);free(ds);if(error)*error=lrError(ENOMEM,@"Package path allocation failed");return NO;}
+    for(NSUInteger i=0;i<packages.count;i++){paths[i]=packages[i].fileSystemRepresentation;nm[i]=names[i].UTF8String;ds[i]=descriptions[i].UTF8String;}
+    struct lr_debian_bootstrap_options options={.progress=LRPackageProgress,.cancel=LRPackageCancel,.log=LRPackageDiagnostic,.context=(__bridge void *)reporter,.trace_entries=atomic_load(&diagnosticLevel)>=3};
+    char message[2048]={0};int result=lr_arch_bootstrap_diagnosed(paths,nm,ds,packages.count,archive.fileSystemRepresentation,&options,message,sizeof message);
+    free(paths);free(nm);free(ds);[LRDiagnosticCenter flush];
+    if(result&&error)*error=lrError(result,[NSString stringWithUTF8String:message]);return result==0;
+}
++ (BOOL)importVerifiedEnvironment:(NSURL *)archive root:(NSString *)root sha256:(NSString *)sha256 metadata:(NSDictionary<NSString *,NSString *> *)metadata progress:(void (^)(double,NSString *))progress cancel:(BOOL (^)(void))cancel error:(NSError **)error {
+    LRInstallProgress *reporter=[LRInstallProgress new];reporter.progress=progress;reporter.cancel=cancel;
+    return [Roots.instance importVerifiedRootFromArchive:archive name:root sha256:sha256 metadata:metadata error:error progressReporter:reporter];
+}
++ (BOOL)activeEnvironmentIsArch {
+    NSDictionary *catalog=[NSJSONSerialization JSONObjectWithData:[NSData dataWithContentsOfURL:self.catalogURL]?:[NSData data] options:0 error:nil];
+    for(NSDictionary *e in catalog[@"environments"])if([e[@"rootfsName"] isEqual:self.activeRootName])return [e[@"distributionID"] isEqual:@"arch"];
+    NSDictionary *installation=[NSJSONSerialization JSONObjectWithData:[NSData dataWithContentsOfURL:[[self rootURL:self.activeRootName] URLByAppendingPathComponent:@"environment-install.json"]]?:[NSData data] options:0 error:nil];
+    return [installation[@"distributionID"] isEqual:@"arch"];
+}
 + (BOOL)importVerifiedEnvironment:(NSURL *)archive root:(NSString *)root sha256:(NSString *)sha256 progress:(void (^)(double,NSString *))progress cancel:(BOOL (^)(void))cancel error:(NSError **)error {
     LRInstallProgress *reporter=[LRInstallProgress new];reporter.progress=progress;reporter.cancel=cancel;
     return [Roots.instance importVerifiedRootFromArchive:archive name:root sha256:sha256 metadata:@{@"distributionID":@"debian",@"distribution":@"Debian GNU/Linux",@"version":@"13.7",@"packageManager":@"apt",@"defaultShell":@"/bin/bash"} error:error progressReporter:reporter];
@@ -733,7 +762,8 @@ static NSArray<NSString *> *LRLoginCommand(NSString *name, NSError **error) {
     // Use getent semantics inside the real account tool too: its own database
     // locking and duplicate-name checks are authoritative, not this UI list.
     NSString *passwd=LRAccountTool(@[@"/usr/bin/passwd", @"/bin/passwd"]);
-    NSString *create=LRAccountTool(self.activeEnvironmentIsDebian ? @[@"/usr/sbin/useradd"] : @[@"/usr/sbin/adduser", @"/sbin/adduser", @"/usr/bin/adduser", @"/bin/adduser"]);
+    // shadow's useradd on glibc distributions (Debian, Arch Linux ARM); BusyBox adduser on Alpine.
+    NSString *create=LRAccountTool(self.activeEnvironmentIsDebian || self.activeEnvironmentIsArch ? @[@"/usr/sbin/useradd", @"/usr/bin/useradd"] : @[@"/usr/sbin/adduser", @"/sbin/adduser", @"/usr/bin/adduser", @"/bin/adduser"]);
     if (!passwd || !create) { if(error)*error=lrError(ENOENT, @"Account tools are not installed yet. Use Create Account in Linux Users; it installs them automatically."); return nil; }
     // Administrator: the distribution's sudo group (sudo on Debian, wheel on
     // Alpine); sudo then asks for the user's own password.
@@ -741,10 +771,12 @@ static NSArray<NSString *> *LRLoginCommand(NSString *name, NSError **error) {
     if (administrator) {
         if (!self.canGrantAdministrator) { if(error)*error=lrError(ENOENT, @"sudo is not installed in this environment; install it first, or create the user without administrator access."); return nil; }
         grant=self.activeEnvironmentIsDebian ? @" && { getent group sudo >/dev/null || groupadd --system sudo; } && usermod -aG sudo -- \"$1\"" :
+            self.activeEnvironmentIsArch ? @" && { getent group wheel >/dev/null || groupadd --system wheel; } && usermod -aG wheel -- \"$1\""
+             " && { [ -e /etc/sudoers.d/linuxrunner-wheel ] || { mkdir -p /etc/sudoers.d && printf '%%wheel ALL=(ALL:ALL) ALL\\n' > /etc/sudoers.d/linuxrunner-wheel && chmod 0440 /etc/sudoers.d/linuxrunner-wheel; }; }" :
             @" && { getent group wheel >/dev/null || addgroup -S wheel; } && addgroup \"$1\" wheel"
              " && { [ -e /etc/sudoers.d/linuxrunner-wheel ] || { mkdir -p /etc/sudoers.d && printf '%%wheel ALL=(ALL:ALL) ALL\\n' > /etc/sudoers.d/linuxrunner-wheel && chmod 0440 /etc/sudoers.d/linuxrunner-wheel; }; }";
     }
-    NSString *script=[NSString stringWithFormat:self.activeEnvironmentIsDebian ?
+    NSString *script=[NSString stringWithFormat:self.activeEnvironmentIsDebian || self.activeEnvironmentIsArch ?
         @"\"$2\" --create-home --shell /bin/bash -- \"$1\"%@ && exec \"$3\" \"$1\"" :
         @"\"$2\" -D -h \"/home/$1\" -s /bin/sh \"$1\"%@ && exec \"$3\" \"$1\"", grant];
     return [self terminalForCommand:@[@"/bin/sh", @"-c", script, @"linuxrunner-create-user", name, create, passwd] directory:@"/"];
@@ -786,11 +818,13 @@ static void LRWaitForProcess(TerminalViewController *process, NSTimeInterval tim
     char salt[17], hash[160];
     if (lr_random_salt(salt) || lr_sha512_crypt(password.UTF8String, salt, hash, sizeof hash)) { completion(lrError(EIO, @"The password could not be prepared.")); return; }
     NSString *hashed = @(hash); memset(hash, 0, sizeof hash);
-    BOOL debian = self.activeEnvironmentIsDebian;
+    BOOL debian = self.activeEnvironmentIsDebian, arch = self.activeEnvironmentIsArch;
     void (^create)(void) = ^{
         progress(@"Creating your account");
         NSString *grant = !administrator ? @"" : debian ?
-            @"{ getent group sudo >/dev/null || groupadd --system sudo; }; usermod -aG sudo -- \"$1\"\n" :
+            @"{ getent group sudo >/dev/null || groupadd --system sudo; }; usermod -aG sudo -- \"$1\"\n" : arch ?
+            @"{ getent group wheel >/dev/null || groupadd --system wheel; }; usermod -aG wheel -- \"$1\"\n"
+             "[ -e /etc/sudoers.d/linuxrunner-wheel ] || { mkdir -p /etc/sudoers.d && printf '%%wheel ALL=(ALL:ALL) ALL\\n' > /etc/sudoers.d/linuxrunner-wheel && chmod 0440 /etc/sudoers.d/linuxrunner-wheel; }\n" :
             @"{ getent group wheel >/dev/null || addgroup -S wheel; }; addgroup \"$1\" wheel\n"
              "[ -e /etc/sudoers.d/linuxrunner-wheel ] || { mkdir -p /etc/sudoers.d && printf '%%wheel ALL=(ALL:ALL) ALL\\n' > /etc/sudoers.d/linuxrunner-wheel && chmod 0440 /etc/sudoers.d/linuxrunner-wheel; }\n";
         NSString *script = [NSString stringWithFormat:@"set -e\nstty -echo 2>/dev/null || true\n"
@@ -875,16 +909,17 @@ static NSString *LRActiveInstall;
 + (BOOL)installationRunning { return LRActiveInstall != nil; }
 static NSString *LRInstallFailureMessage(NSString *category, NSString *detail) {
     NSDictionary *advice = @{
-        @"NETWORK_UNAVAILABLE": @"LinuxRunner could not reach the Debian servers. Check the internet connection and try again.",
+        @"NETWORK_UNAVAILABLE": @"LinuxRunner could not reach the package servers. Check the internet connection and try again.",
         @"TLS_CERTIFICATE_ERROR": @"A secure connection to the package servers failed. Check that the date and time are correct, then try again.",
         @"PACKAGE_MANAGER_BUSY": @"Another package operation is using the package manager. Wait for it to finish, then try again.",
         @"INSUFFICIENT_STORAGE": @"There is not enough free storage on this iPhone. Free some space and try again.",
         @"PACKAGE_NOT_FOUND": @"The package servers did not offer a required package. Try again later.",
         @"REPOSITORY_METADATA_ERROR": @"The package lists could not be verified or downloaded. Try again later.",
         @"DEPENDENCY_CONFLICT": @"The packages have conflicting dependencies. Export the Open Desktop Report and send it.",
-        @"PACKAGE_DATABASE_RECOVERY_REQUIRED": @"Debian's package database needs repair; trying again finishes the interrupted step.",
-        @"PACKAGE_MANAGER_STUCK": @"Debian's first-start setup stopped making progress. Restart LinuxRunner and try again.",
+        @"PACKAGE_DATABASE_RECOVERY_REQUIRED": @"Linux package setup needs attention. Review the retained package log and Repair Center before retrying.",
+        @"PACKAGE_MANAGER_STUCK": @"Linux first-start setup stopped making progress. Restart LinuxRunner and try again.",
         @"FILESYSTEM_ERROR": @"Linux could not write its files. Restart LinuxRunner and try again.",
+        @"PLASMA_X11_UNAVAILABLE": @"These Arch repositories do not provide the Plasma X11 session required by LinuxRunner. Choose LinuxRunner Desktop. Wayland is not supported.",
         @"ACCOUNT_TOOL_BROKEN": @"The account tools were installed but do not run. Export the Open Desktop Report and send it.",
     };
     NSString *base = advice[category] ?: @"The installation failed.";
@@ -1006,12 +1041,13 @@ static NSCountedSet<NSString *> *LRAwakeSet;
         if(error)*error=lrError(EPERM,@"System accounts and the default login cannot be removed. Select a different default login first.");
         return nil;
     }
-    NSString *remove = LRAccountTool(self.activeEnvironmentIsDebian ? @[@"/usr/sbin/userdel"] :
+    BOOL shadow = self.activeEnvironmentIsDebian || self.activeEnvironmentIsArch;
+    NSString *remove = LRAccountTool(shadow ? @[@"/usr/sbin/userdel", @"/usr/bin/userdel"] :
         @[@"/usr/sbin/deluser", @"/sbin/deluser", @"/usr/bin/deluser", @"/bin/deluser"]);
     if (!remove) { if(error)*error=lrError(ENOENT,@"The distribution's account-removal tool is missing. Install it using Package Center."); return nil; }
     // No --force / --remove-home: the real guest tool owns account locks,
     // active-process checks and passwd/group/shadow updates. Keep user files.
-    NSArray *command = self.activeEnvironmentIsDebian ? @[remove,@"--",name] : @[remove,name];
+    NSArray *command = shadow ? @[remove,@"--",name] : @[remove,name];
     return [self terminalForCommand:command directory:@"/"];
 }
 + (TerminalViewController *)terminalForCommand:(NSArray<NSString *> *)command directory:(NSString *)directory {

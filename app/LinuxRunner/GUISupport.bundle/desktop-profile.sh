@@ -33,10 +33,17 @@ gui_helpers_stale() {
     key=$({ cat support-version; sha256sum gui-test.c focus-manager.c; pkg-config --modversion x11 xcb; } | sha256sum | awk '{print $1}')
     [ "$(cat gui-build.key 2>/dev/null || true)" != "$key" ]
 }
+desktop_commands_present() {
+    have openbox && have xterm || return 1
+    case "$distro" in
+        arch|archarm) have pcmanfm-qt && have lxqt-panel;;
+        *) have pcmanfm && { have lxpanel || have xfce4-panel; };;
+    esac
+}
 desktop_missing() {
-    for c in openbox pcmanfm xterm; do have "$c" || return 0; done
-    have lxpanel || have xfce4-panel || return 0
+    desktop_commands_present || return 0
     [ -x desktop-probe ] || return 0
+    [ "$(cat desktop-probe.key 2>/dev/null || true)" = "$(sha256sum desktop-probe.c | awk '{print $1}')" ] || return 0
     return 1
 }
 audio_missing() {
@@ -60,9 +67,10 @@ check() {
     { if [ -n "$missing" ]; then echo "missing=$missing"; else echo ready; fi
       [ -z "$optional" ] || echo "optional-missing=$optional"
       echo "distribution=${distro:-unknown}"
+      case "$distro" in arch|archarm) echo desktop-components=openbox,lxqt-panel,pcmanfm-qt;; esac
       if have startplasma-x11 && have kwin_x11 && have plasmashell; then echo plasma=installed; else echo plasma=missing; fi
       # Startup timeline (app diagnostics): Debian first start, helper build.
-      if [ -e /usr/lib/linuxrunner/initialize-debian.sh ]; then
+      if [ -e /usr/lib/linuxrunner/initialize-debian.sh ] || [ -e /usr/lib/linuxrunner/initialize-arch.sh ]; then
           if [ -f /var/lib/linuxrunner/initialized ]; then echo first-start=done; else echo first-start=pending; fi
       fi
       if [ ! -x focus-manager ] || [ ! -x gui-test ]; then echo helpers=missing; elif gui_helpers_stale; then echo helpers=stale; else echo helpers=current; fi
@@ -85,14 +93,15 @@ classify_failure() {
         text=$(grep -E '^(Err:|W: |E: )|^  ' "$apt_log.update"; printf '%s\n' "$text")
     fi
     first() { printf '%s\n' "$text" | grep -m 1 -E "$1"; }
-    if line=$(first 'Could not get lock|frontend lock|is locked by'); then category=PACKAGE_MANAGER_BUSY
+    if line=$(first 'Could not get lock|frontend lock|is locked by|unable to lock database'); then category=PACKAGE_MANAGER_BUSY
     elif line=$(first 'certificate verify failed|Certificate verification failed|server certificate'); then
         category=TLS_CERTIFICATE_ERROR
         [ -s /etc/ssl/certs/ca-certificates.crt ] || line="$line (trust store /etc/ssl/certs/ca-certificates.crt missing: Debian setup unfinished)"
-    elif line=$(first 'Temporary failure resolving|Could not resolve|Network is unreachable|Connection timed out|No route to host|Connection refused'); then category=NETWORK_UNAVAILABLE
-    elif line=$(first 'No space left|You don.t have enough free space'); then category=INSUFFICIENT_STORAGE
-    elif line=$(first 'Unable to locate package|has no installation candidate'); then category=PACKAGE_NOT_FOUND
-    elif line=$(first 'Unmet dependencies|held broken packages|unmet dependenc'); then category=DEPENDENCY_CONFLICT
+    elif line=$(first 'Temporary failure resolving|Could not resolve|Network is unreachable|Connection timed out|No route to host|Connection refused|failed retrieving file|failed to synchronize'); then category=NETWORK_UNAVAILABLE
+    elif line=$(first 'No space left|You don.t have enough free space|Partition .* too full|not enough free disk space'); then category=INSUFFICIENT_STORAGE
+    elif line=$(first 'Unable to locate package|has no installation candidate|target not found'); then category=PACKAGE_NOT_FOUND
+    elif line=$(first 'Unmet dependencies|held broken packages|unmet dependenc|unable to satisfy dependency|conflicting dependencies|are in conflict'); then category=DEPENDENCY_CONFLICT
+    elif line=$(first 'invalid or corrupted package|signature from .* is (unknown trust|invalid)|key .* could not be looked up'); then category=REPOSITORY_METADATA_ERROR
     elif line=$(first 'dpkg was interrupted|dpkg --configure -a'); then category=PACKAGE_DATABASE_RECOVERY_REQUIRED
     elif line=$(first 'InRelease|Release file|NO_PUBKEY|not signed|Hash Sum mismatch|404'); then category=REPOSITORY_METADATA_ERROR
     elif line=$(first 'Read-only file system|Input/output error|Permission denied'); then category=FILESYSTEM_ERROR
@@ -101,11 +110,11 @@ classify_failure() {
 }
 
 install_packages() {
-    # $1 = label, rest = Debian packages | Alpine packages separated by --
+    # $1 = label, rest = Debian packages -- Alpine packages -- Arch Linux ARM packages
     label=$1; shift
-    debian= alpine= side=debian
-    for p in "$@"; do if [ "$p" = -- ]; then side=alpine; continue; fi
-        if [ $side = debian ]; then debian="$debian $p"; else alpine="$alpine $p"; fi; done
+    debian= alpine= arch= side=debian
+    for p in "$@"; do if [ "$p" = -- ]; then if [ $side = debian ]; then side=alpine; else side=arch; fi; continue; fi
+        case $side in debian) debian="$debian $p";; alpine) alpine="$alpine $p";; *) arch="$arch $p";; esac; done
     if have apt-get; then
         export DEBIAN_FRONTEND=noninteractive
         # installer-run.sh's package_lock_acquire already waited for Debian's
@@ -141,6 +150,25 @@ install_packages() {
                 apt-get -o APT::Status-Fd=3 install -y --no-install-recommends $debian 3> "$status_file" > "$apt_log" 2>&1 || { cat "$apt_log"; classify_failure "$label"; return 1; }
             else cat "$apt_log"; classify_failure "$label"; return 1; fi
         fi
+        cat "$apt_log"
+    elif have pacman; then
+        [ -n "$arch" ] || { echo "PROFILE_FAILURE: category=UNKNOWN stage=$label detail=no Arch Linux ARM package list"; return 1; }
+        # pacman's per-package lines become the apt-status records the app shows
+        # as real percentages: "(3/12) installing foo" -> pmstatus, downloads -> dlstatus.
+        status_file="$PWD/apt-status"
+        # Refresh and upgrade in the SAME transaction as the requested packages:
+        # -Sy followed by -S leaves rolling Arch vulnerable to partial upgrades.
+        pacman_refresh=
+        if [ -z "${pacman_synced:-}" ]; then pacman_refresh=yu; fi
+        stage "Installing $label${pacman_refresh:+ (synchronizing and upgrading Arch)}"
+        : > "$status_file"
+        { pacman -S$pacman_refresh --needed --noconfirm --noprogressbar $arch 2>&1; echo "PACMAN_EXIT:$?"; } | tee "$apt_log" | awk -v status="$status_file" '
+            /^Packages \([0-9]+\)/ { gsub(/[^0-9]/, "", $2); total = $2 + 0 }
+            / downloading\.\.\.$/ { d++; if (total) { printf "dlstatus:%d:%.1f:%s\n", d, 100 * d / total, $1 >> status; fflush(status) } }
+            /^\( *[0-9]+\/[0-9]+\) installing / { split($0, a, /[()\/]/); n = a[2] + 0; t = a[3] + 0; name = $NF
+              if (t) { printf "pmstatus:%s:%.1f:Installing %s\n", name, 100 * n / t, name >> status; fflush(status) } }'
+        grep -q '^PACMAN_EXIT:0$' "$apt_log" || { cat "$apt_log"; classify_failure "$label"; return 1; }
+        pacman_synced=1
         cat "$apt_log"
     elif have apk; then
         stage "Installing $label"
@@ -179,14 +207,16 @@ repair() {
     [ "$(id -u)" = 0 ] || support_fail PROFILE root-required
     if gui_missing; then
         install_packages "X server and display support" busybox procps xvfb x11vnc xauth x11-xserver-utils x11-utils x11-apps libx11-dev libxcb1-dev build-essential pkg-config binutils xterm xfonts-base fonts-dejavu-core fontconfig dbus-daemon dbus-x11 librsvg2-common \
-            -- xvfb x11vnc xclock libx11-dev libxcb-dev build-base pkgconf binutils xterm font-misc-misc font-dejavu fontconfig xauth setxkbmap xmodmap dbus || support_fail PROFILE gui-packages
+            -- xvfb x11vnc xclock libx11-dev libxcb-dev build-base pkgconf binutils xterm font-misc-misc font-dejavu fontconfig xauth setxkbmap xmodmap dbus \
+            -- procps-ng xorg-server-xvfb x11vnc xorg-xauth xorg-xset xorg-xrandr xorg-xprop xorg-xwininfo xorg-xdpyinfo xorg-xsetroot xorg-xmodmap xorg-setxkbmap xorg-xclock libx11 libxcb gcc make pkgconf binutils xterm xorg-fonts-misc ttf-dejavu fontconfig dbus librsvg || support_fail PROFILE gui-packages
         mkdir -p /var/lib/dbus; dbus-uuidgen --ensure 2>/dev/null || true
     fi
     if gui_missing || gui_helpers_stale; then build_gui_helpers || support_fail PROFILE gui-helpers; fi
     if desktop_missing; then
-        if ! { have openbox && have pcmanfm && have xterm && { have lxpanel || have xfce4-panel; }; }; then
+        if ! desktop_commands_present; then
             install_packages "desktop (window manager, panel, file manager)" openbox lxpanel pcmanfm adwaita-icon-theme fonts-dejavu-core dbus-daemon dbus-bin xterm \
-                -- openbox xfce4-panel pcmanfm adwaita-icon-theme gdk-pixbuf-loaders font-dejavu dbus xterm || support_fail PROFILE desktop-packages
+                -- openbox xfce4-panel pcmanfm adwaita-icon-theme gdk-pixbuf-loaders font-dejavu dbus xterm \
+                -- openbox lxqt-panel pcmanfm-qt adwaita-icon-theme ttf-dejavu dbus xterm || support_fail PROFILE desktop-packages
         fi
         stage "Building desktop helpers"
         build_desktop_probe || support_fail PROFILE desktop-probe
@@ -197,13 +227,13 @@ repair() {
     # Optional: sound. Failure leaves the desktop usable without sound.
     if audio_missing; then
         if ! { have pulseaudio && have parec && have pactl; }; then
-            install_packages "sound" pulseaudio pulseaudio-utils libasound2-plugins -- pulseaudio pulseaudio-utils alsa-plugins-pulse || echo 'PROFILE: sound packages unavailable; desktop continues without sound'
+            install_packages "sound" pulseaudio pulseaudio-utils libasound2-plugins -- pulseaudio pulseaudio-utils alsa-plugins-pulse -- pulseaudio libpulse pulseaudio-alsa || echo 'PROFILE: sound packages unavailable; desktop continues without sound'
         fi
         if have parec; then stage "Preparing sound"; build_audio_relay || echo 'PROFILE: sound relay build failed; desktop continues without sound'; fi
     fi
     # Account tools: LinuxRunner's Debian image does not include passwd.
     if [ "$want_accounts" = accounts ] && accounts_missing; then
-        install_packages "account tools" passwd -- shadow || support_fail PROFILE account-tools
+        install_packages "account tools" passwd -- shadow -- shadow || support_fail PROFILE account-tools
     fi
     stage "Checking"
     check
@@ -217,8 +247,8 @@ case "$mode" in
         # Account tools only (and sudo when asked): native account setup.
         [ "$(id -u)" = 0 ] || support_fail PROFILE root-required
         stage "Checking existing installation"
-        if accounts_missing; then install_packages "account tools" passwd -- shadow || support_fail PROFILE account-tools; else echo 'PROFILE: account tools already installed'; fi
-        if [ "${2:-}" = sudo ] && ! have sudo; then install_packages "administrator tools" sudo -- sudo || support_fail PROFILE sudo; fi
+        if accounts_missing; then install_packages "account tools" passwd -- shadow -- shadow || support_fail PROFILE account-tools; else echo 'PROFILE: account tools already installed'; fi
+        if [ "${2:-}" = sudo ] && ! have sudo; then install_packages "administrator tools" sudo -- sudo -- sudo || support_fail PROFILE sudo; fi
         # Present is not enough: each tool must run.
         stage "Verifying installation"
         accounts_missing && support_fail PROFILE account-tools-missing
@@ -228,7 +258,16 @@ case "$mode" in
     plasma)
         # Experimental KDE Plasma (X11 session) from Debian's own packages, on top
         # of the regular desktop (which stays available as the fallback).
-        [ "$distro" = debian ] || support_fail PROFILE plasma-debian-only
+        case "$distro" in
+            debian) ;;
+            arch|archarm)
+                if have startplasma-x11 && have kwin_x11 && have plasmashell; then
+                    repair "${2:-}"; echo 'PROFILE: plasma-packages=present session=not-tested'; exit 0
+                fi
+                echo 'PROFILE_FAILURE: category=PLASMA_X11_UNAVAILABLE stage=KDE detail=Arch rolling Plasma 6.8 no longer supplies startplasma-x11; LinuxRunner requires an X11 session. Use LinuxRunner Desktop.'
+                support_fail PROFILE plasma-x11-unavailable;;
+            *) support_fail PROFILE plasma-distribution-unsupported;;
+        esac
         repair "${2:-}"
         if ! { have startplasma-x11 && have kwin_x11 && have plasmashell; }; then
             install_packages "KDE Plasma (experimental, about 550 packages)" plasma-desktop plasma-workspace kwin-x11 konsole dolphin breeze breeze-icon-theme dbus-x11 || support_fail PROFILE plasma-packages

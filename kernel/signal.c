@@ -1444,4 +1444,31 @@ static dword_t queued_signal(pid_t_ tgid,pid_t_ tid,dword_t sig,addr_t address,b
     unlock(&pids_lock);return result;
 }
 dword_t sys_rt_sigqueueinfo(pid_t_ pid,dword_t sig,addr_t info) {return queued_signal(0,pid,sig,info,false);}
+
+// pidfd_send_signal (Linux 5.1): signal the process a pidfd refers to. GLib and
+// Rust spawn helpers (e.g. glycin image loaders) use it to stop their children.
+// No flags are supported yet (PIDFD_SIGNAL_* from Linux 6.9 return EINVAL).
+dword_t sys_pidfd_send_signal(fd_t pidfd, dword_t sig, addr_t info_addr, uint_t flags) {
+    if (flags != 0 || sig >= NUM_SIGS)
+        return _EINVAL;
+    struct fd *fd = f_get(pidfd);
+    pid_t_ pid;
+    if (fd == NULL)
+        return _EBADF;
+    if (!fd_pidfd_target(fd, &pid))
+        return _EBADF;
+    lock(&pids_lock);
+    struct task *task = pid_get_task(pid);
+    if (task == NULL || task->zombie || task->exiting) { unlock(&pids_lock); return _ESRCH; }
+    if (info_addr != 0) {
+        // Same rules as rt_sigqueueinfo, addressed by the pid this caller sees.
+        pid_t_ view = task_vnr(task, current->pidns);
+        unlock(&pids_lock);
+        if (!view) return _ESRCH;
+        return queued_signal(0, view, sig, info_addr, false);
+    }
+    int err = kill_task(task, sig, SI_USER_);
+    unlock(&pids_lock);
+    return err;
+}
 dword_t sys_rt_tgsigqueueinfo(pid_t_ tgid,pid_t_ tid,dword_t sig,addr_t info) {return queued_signal(tgid,tid,sig,info,true);}

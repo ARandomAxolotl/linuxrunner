@@ -163,6 +163,9 @@ struct task {
     lock_t *waiting_lock;
     lock_t waiting_cond_lock;
     bool no_new_privs; // sticky Linux-visible promise; inherited by fork/clone and exec
+    // PR_SET_PDEATHSIG: signal sent to this thread when its parent exits. Not
+    // inherited by fork/clone children; cleared by a privilege-changing exec.
+    int pdeath_signal;
 
     // Linux user namespace (NULL = initial namespace) and capability sets.
     // Credentials above stay global ids; guest-visible values are translated

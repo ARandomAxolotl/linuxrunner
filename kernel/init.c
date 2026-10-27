@@ -67,7 +67,12 @@ static struct rlimit_ init_rlimits[16] = {
     [RLIMIT_CPU_]        = {RLIM_INFINITY_, RLIM_INFINITY_},
     [RLIMIT_FSIZE_]      = {RLIM_INFINITY_, RLIM_INFINITY_},
     [RLIMIT_DATA_]       = {RLIM_INFINITY_, RLIM_INFINITY_},
-    [RLIMIT_STACK_]      = {128*1024*1024, RLIM_INFINITY_},
+    // Linux's 8 MiB default. glibc sizes every thread's default stack from the
+    // soft limit, and those stacks are writable anonymous memory charged against
+    // the anonymous-page budget: at 128 MiB a GTK process with a dozen threads
+    // used >1 GiB and an Arch desktop exhausted the budget (execve ENOMEM).
+    // The hard limit stays unlimited, so `ulimit -s` can still raise it.
+    [RLIMIT_STACK_]      = {8*1024*1024, RLIM_INFINITY_},
     [RLIMIT_CORE_]       = {0, RLIM_INFINITY_},
     [RLIMIT_RSS_]        = {RLIM_INFINITY_, RLIM_INFINITY_},
     [RLIMIT_NPROC_]      = {1024, 1024},

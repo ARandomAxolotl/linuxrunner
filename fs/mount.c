@@ -1,3 +1,4 @@
+#include <stdatomic.h>
 #include <string.h>
 #include <sys/stat.h>
 #include "kernel/calls.h"
@@ -106,6 +107,8 @@ int do_mount(const struct fs_ops *fs, const char *source, const char *point, con
     new_mount->fs = fs;
     new_mount->data = NULL;
     new_mount->refcount = 0;
+    static _Atomic uint64_t next_mount_id = 1;
+    new_mount->id = atomic_fetch_add(&next_mount_id, 1);
     if (fs->mount) {
         int err = fs->mount(new_mount);
         if (err < 0) {

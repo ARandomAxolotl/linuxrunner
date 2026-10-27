@@ -136,6 +136,7 @@ int_t sys_epoll_pwait(fd_t epoll_f, addr_t events_addr, int_t max_events, int_t 
 
 int_t sys_eventfd2(uint_t initval, int_t flags);
 int_t sys_pidfd_open(pid_t_ pid, uint_t flags);
+dword_t sys_pidfd_send_signal(fd_t pidfd, dword_t sig, addr_t info_addr, uint_t flags);
 int_t pidfd_install(pid_t_ pid);
 bool fd_pidfd_target(struct fd *fd, pid_t_ *pid);
 void pidfd_notify_exit(pid_t_ pid);

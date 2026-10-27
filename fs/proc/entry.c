@@ -44,9 +44,16 @@ int proc_entry_stat(struct proc_entry *entry, struct statbuf *stat) {
     unlock(&pids_lock);
     if (entry->meta->nlink) stat->nlink = entry->meta->nlink(entry);
 
-    stat->inode = entry->meta->inode | entry->pid << 16 | (uint64_t) entry->fd << 48;
-    if (entry->meta->inode_of) stat->inode = entry->meta->inode_of(entry);
+    stat->inode = proc_entry_inode(entry);
     return 0;
+}
+
+// The inode number stat() reports; readdir must report the same, nonzero value
+// (bash globbing and other d_ino users skip entries whose inode is 0).
+uint64_t proc_entry_inode(struct proc_entry *entry) {
+    if (entry->meta->inode_of)
+        return entry->meta->inode_of(entry);
+    return entry->meta->inode | entry->pid << 16 | (uint64_t) entry->fd << 48;
 }
 
 void proc_entry_getname(struct proc_entry *entry, char *buf) {

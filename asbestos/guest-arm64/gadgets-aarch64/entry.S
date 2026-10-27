@@ -51,6 +51,11 @@ NAME(fiber_enter):
     mov x8, sp
     str x8, [x1, #LOCAL_jit_exit_sp]
 
+    // Timer cycle counter lives in _cycle (x27, callee-saved) while in gadget
+    // code; fiber_exit writes it back. Keeps the per-branch increment off the
+    // store-to-load forwarding path.
+    ldr _cycle_w, [x1, #CPU_cycle]
+
     // Setup gadget instruction pointer from block
     add _pc, x0, #FIBER_BLOCK_code
 
@@ -160,7 +165,7 @@ chain_null_gadget:
 
 poke:
     // Timer interrupt pending — load guest PC from block->addr and return
-    ldr x8, [_pc, #(-FIBER_BLOCK_code + FIBER_BLOCK_addr)]
+    load_block_addr x8, _pc
     str x8, [_cpu, #CPU_pc]
     sub x8, _pc, #FIBER_BLOCK_code
     str x8, [_cpu, #LOCAL_last_block]
@@ -190,6 +195,7 @@ fiber_exit:
     // The code-stream position of this exit: for INT_GPF the dispatcher maps
     // it to the faulting instruction's precise retry PC (fiber_fault_pc).
     str _pc, [_cpu, #LOCAL_fault_code]
+    str _cycle_w, [_cpu, #CPU_cycle]
 fiber_exit_restore:
     // Restore callee-saved registers
     ldr lr, [sp, #0x60]

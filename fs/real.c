@@ -508,7 +508,7 @@ int realfs_getpath(struct fd *fd, char *buf) {
         return err;
 
     /* For bind-mounted dirs, F_GETPATH resolves symlinks and returns the
-     * host persistent path (e.g. <host-storage>/sessions/<sid>/attachments).
+     * host persistent path (e.g. <application-data>/sessions/<sid>/attachments).
      * This won't start with mount->source, so the normal prefix strip fails.
      * Detect and translate back to the Linux path. */
     char linux_path[MAX_PATH];

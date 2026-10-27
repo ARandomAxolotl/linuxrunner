@@ -18,7 +18,7 @@ LinuxRunner derives from iSH (Theodore Dubois and contributors) through ios-linu
 | Mesa demo sources | `tests/linuxrunner/gpu/mesa-demos`, checksums and per-file notices | MIT-style notices retained in source and mesa-demos-notice.txt |
 | LinuxRunner guest graphics and helper binaries | `graphics/`, GUI bundle sources and build scripts | Part of the GPL-covered derivative; gpu-bridge-notice.txt and gpu-glx-notice.txt |
 
-The app bundles `gpu-glx-notice.txt`, `gpu-bridge-notice.txt`, `mesa-demos-notice.txt`, `shader-compiler-notices.txt`, `terminal-notices.txt` and xterm's `LICENSES.md`. These remain byte-for-byte unchanged from the original release source.
+The app bundles `gpu-glx-notice.txt`, `gpu-bridge-notice.txt`, `mesa-demos-notice.txt`, `shader-compiler-notices.txt`, `terminal-notices.txt` and xterm's `LICENSES.md`. Retain these notices in the source and packaged application.
 
 The custom LinuxRunner wallpaper and active icon have retained generation scripts and original SVG geometry. Inherited alternate iSH icons retain their original files. KDE wallpaper and application artwork visible in screenshots belong to their respective projects.
 
@@ -34,8 +34,8 @@ The rootfs patch bundle contains `wasm-polyfill.js` and `fetch-polyfill.js`. The
 
 ## Downloaded Linux software
 
-Debian packages and additional Alpine packages are downloaded from distribution mirrors by the user's device. They keep their own licenses and notices (for Debian, see `/usr/share/doc/<package>/copyright`). KDE, Mesa, browsers and other installed programs are separate projects.
+Debian and Arch Linux ARM packages and additional Alpine packages are downloaded from distribution mirrors by the user's device. They keep their own licenses and notices (for Debian, see `/usr/share/doc/<package>/copyright`). KDE, Mesa, browsers and other installed programs are separate projects.
 
 ## Source availability
 
-The application source, build scripts and dependency revisions are retained in the repository. [SOURCE_ORIGIN.txt](SOURCE_ORIGIN.txt) records the release lineage and exact dependency commits. Submodule contents are not included in GitHub's automatic source archives; initialize the pinned submodules when building from a clone. Source-distribution requirements for bundled binaries apply separately from the licenses of packages downloaded later by users. The release source archive includes the matching Alpine package recipes and checksum-verified source inputs, the pinned build dependencies, and the Ghostty Web source archive whose distributed JS/WASM files match the shipped assets.
+The application source, build scripts and dependency revisions are retained in the repository. [SOURCE_ORIGIN.txt](SOURCE_ORIGIN.txt) records the release lineage and exact dependency commits. Submodule contents are not included in GitHub's automatic source archives; initialize the pinned submodules when building from a clone. Source-distribution requirements for bundled binaries apply separately from the licenses of packages downloaded later by users. The v1.0.1 release source asset includes the current application snapshot, pinned build dependencies, matching Alpine package recipes and checksum-verified source inputs, and matching Ghostty Web/Ghostty source. The bundled root filesystem and terminal renderer are checked against these inputs.

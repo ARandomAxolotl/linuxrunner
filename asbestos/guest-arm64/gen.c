@@ -24,6 +24,7 @@
 #include <stdio.h>
 #include <string.h>
 #include "asbestos/gen.h"
+#include "asbestos/frame.h"
 #ifdef ISH_JIT
 #include "asbestos/guest-arm64/jit.h"
 #endif
@@ -966,6 +967,63 @@ extern void gadget_ldxr(void);     // Load exclusive + save to monitor
 extern void gadget_stxr(void);     // Store exclusive via atomic CAS
 extern void gadget_update_base(void);
 extern void gadget_writeback_addr(void);
+// Single-gadget signed-immediate GPR loads/stores and LDP/STP writeback forms
+// (memory.S gpr_ldst_simm / gpr_pair_wb). Index [mode]: 0 offset, 1 pre, 2 post.
+#define LDST_SIMM_DECL(n) extern void gadget_##n##_simm_m0(void), gadget_##n##_simm_m1(void), gadget_##n##_simm_m2(void);
+LDST_SIMM_DECL(ld64) LDST_SIMM_DECL(ld32) LDST_SIMM_DECL(ld16) LDST_SIMM_DECL(ld8)
+LDST_SIMM_DECL(ld16sx32) LDST_SIMM_DECL(ld8sx32) LDST_SIMM_DECL(ld32sx64) LDST_SIMM_DECL(ld16sx64) LDST_SIMM_DECL(ld8sx64)
+LDST_SIMM_DECL(st64) LDST_SIMM_DECL(st32) LDST_SIMM_DECL(st16) LDST_SIMM_DECL(st8)
+#undef LDST_SIMM_DECL
+extern void gadget_stp64_wb_m1(void), gadget_stp64_wb_m2(void), gadget_stp32_wb_m1(void), gadget_stp32_wb_m2(void);
+// Specialized shifted-register data processing (math.S dp3): [op][sf][shift type].
+#define DP3_DECL3(op) extern void gadget_dp3_##op##_32_lslv(void), gadget_dp3_##op##_32_lsrv(void), gadget_dp3_##op##_32_asrv(void), \
+    gadget_dp3_##op##_64_lslv(void), gadget_dp3_##op##_64_lsrv(void), gadget_dp3_##op##_64_asrv(void);
+#define DP3_DECL4(op) DP3_DECL3(op) extern void gadget_dp3_##op##_32_rorv(void), gadget_dp3_##op##_64_rorv(void);
+DP3_DECL3(add) DP3_DECL3(adds) DP3_DECL3(sub) DP3_DECL3(subs)
+DP3_DECL4(and) DP3_DECL4(bic) DP3_DECL4(orr) DP3_DECL4(orn) DP3_DECL4(eor) DP3_DECL4(eon) DP3_DECL4(ands) DP3_DECL4(bics)
+#define DP3_ROW3(op) {{(void *) gadget_dp3_##op##_32_lslv, (void *) gadget_dp3_##op##_32_lsrv, (void *) gadget_dp3_##op##_32_asrv, NULL}, \
+                      {(void *) gadget_dp3_##op##_64_lslv, (void *) gadget_dp3_##op##_64_lsrv, (void *) gadget_dp3_##op##_64_asrv, NULL}}
+#define DP3_ROW4(op) {{(void *) gadget_dp3_##op##_32_lslv, (void *) gadget_dp3_##op##_32_lsrv, (void *) gadget_dp3_##op##_32_asrv, (void *) gadget_dp3_##op##_32_rorv}, \
+                      {(void *) gadget_dp3_##op##_64_lslv, (void *) gadget_dp3_##op##_64_lsrv, (void *) gadget_dp3_##op##_64_asrv, (void *) gadget_dp3_##op##_64_rorv}}
+static void *const dp3_arith[4][2][4] = { DP3_ROW3(add), DP3_ROW3(adds), DP3_ROW3(sub), DP3_ROW3(subs) };  // [op<<1 | S]
+static void *const dp3_logic[8][2][4] = { DP3_ROW4(and), DP3_ROW4(bic), DP3_ROW4(orr), DP3_ROW4(orn),
+                                          DP3_ROW4(eor), DP3_ROW4(eon), DP3_ROW4(ands), DP3_ROW4(bics) };  // [opc<<1 | N]
+// Byte offset of a guest register operand from the frame; register 31 is XZR.
+static uint64_t dp3_reg_off(uint32_t reg, bool is_dest) {
+    if (reg == 31)
+        return is_dest ? offsetof(struct fiber_frame, xzr_sink) : offsetof(struct fiber_frame, xzr_read);
+    return offsetof(struct fiber_frame, cpu) + offsetof(struct cpu_state, regs) + reg * sizeof(uint64_t);
+}
+static void gen(struct gen_state *state, unsigned long thing);
+static void gen_dp3(struct gen_state *state, void *gadget, uint32_t rd, uint32_t rn, uint32_t rm, uint32_t amount) {
+    gen(state, (unsigned long) gadget);
+    gen(state, dp3_reg_off(rd, true) | (dp3_reg_off(rn, false) << 16) | (dp3_reg_off(rm, false) << 32) | ((uint64_t) amount << 48));
+}
+_Static_assert(sizeof(struct fiber_frame) - sizeof(((struct fiber_frame *) 0)->ret_cache) < 0x10000, "dp3 operand offsets are 16-bit");
+extern void gadget_set_imm(void), gadget_movk_ins(void);
+extern void gadget_dpi_and_32(void), gadget_dpi_orr_32(void), gadget_dpi_eor_32(void), gadget_dpi_ands_32(void);
+extern void gadget_dpi_and_64(void), gadget_dpi_orr_64(void), gadget_dpi_eor_64(void), gadget_dpi_ands_64(void);
+static void *const dpi_gadgets[4][2] = {   // [opc][sf]: AND, ORR, EOR, ANDS
+    {(void *) gadget_dpi_and_32, (void *) gadget_dpi_and_64}, {(void *) gadget_dpi_orr_32, (void *) gadget_dpi_orr_64},
+    {(void *) gadget_dpi_eor_32, (void *) gadget_dpi_eor_64}, {(void *) gadget_dpi_ands_32, (void *) gadget_dpi_ands_64}};
+
+// Fast memory gadgets read the base register as regs[rn]; rn == 31 must be SP.
+_Static_assert(offsetof(struct cpu_state, sp) == offsetof(struct cpu_state, regs) + 31 * sizeof(uint64_t),
+               "cpu_state.sp must follow x0..x30 (memory gadgets address SP as regs[31])");
+
+// Gadget for a GPR LDR/STR with signed immediate (unscaled/pre/post), or NULL
+// when the encoding has no single-gadget form (XZR data register, unallocated).
+static void *gpr_ldst_simm_gadget(uint32_t size, uint32_t opc, unsigned mode_index) {
+#define PICK(n) (mode_index == 0 ? (void *) gadget_##n##_simm_m0 : mode_index == 1 ? (void *) gadget_##n##_simm_m1 : (void *) gadget_##n##_simm_m2)
+    switch (opc) {
+        case 0: return size == 3 ? PICK(st64) : size == 2 ? PICK(st32) : size == 1 ? PICK(st16) : PICK(st8);
+        case 1: return size == 3 ? PICK(ld64) : size == 2 ? PICK(ld32) : size == 1 ? PICK(ld16) : PICK(ld8);
+        case 2: return size == 2 ? PICK(ld32sx64) : size == 1 ? PICK(ld16sx64) : size == 0 ? PICK(ld8sx64) : NULL;
+        case 3: return size == 1 ? PICK(ld16sx32) : size == 0 ? PICK(ld8sx32) : NULL;
+    }
+    return NULL;
+#undef PICK
+}
 // Atomic memory operation helpers
 extern void gadget_atomic_rmw(void);
 extern void gadget_atomic_cas(void);
@@ -2353,6 +2411,14 @@ static int gen_dp_imm(struct gen_state *state, uint32_t insn) {
             return 0;
         }
 
+        // AND/ORR/EOR write SP when rd == 31: keep those on the generic gadget.
+        if (opc == 3 || rd != 31) {
+            gen(state, (unsigned long) dpi_gadgets[opc][sf]);
+            gen(state, dp3_reg_off(rd, true) | (dp3_reg_off(rn, false) << 16));
+            gen(state, sf ? imm : (imm & 0xffffffffu));
+            return 1;
+        }
+
         void *gadget;
         switch (opc) {
             case 0: gadget = gadget_and_imm; break;  // AND
@@ -2385,18 +2451,23 @@ static int gen_dp_imm(struct gen_state *state, uint32_t insn) {
             return 0;
         }
 
-        void *gadget;
-        switch (opc) {
-            case 0: gadget = gadget_movn; break;
-            case 2: gadget = gadget_movz; break;
-            case 3: gadget = gadget_movk; break;
-            default:
-                gen_interrupt(state, INT_UNDEFINED);
-                return 0;
+        if (opc == 1) {
+            gen_interrupt(state, INT_UNDEFINED);
+            return 0;
         }
-
-        gen(state, (unsigned long) gadget);
-        gen(state, rd | (hw << 8) | ((uint64_t)imm16 << 16) | ((uint64_t)sf << 32));
+        // Constants and insert masks are computed here, not at run time.
+        uint64_t width_mask = sf ? ~0ULL : 0xffffffffULL;
+        uint64_t field = (uint64_t) imm16 << (hw * 16);
+        if (opc == 3) {
+            gen(state, (unsigned long) gadget_movk_ins);
+            gen(state, dp3_reg_off(rd, true));
+            gen(state, width_mask & ~(0xffffULL << (hw * 16)));
+            gen(state, field);
+        } else {
+            gen(state, (unsigned long) gadget_set_imm);
+            gen(state, dp3_reg_off(rd, true));
+            gen(state, (opc == 0 ? ~field : field) & width_mask);
+        }
         return 1;
     }
 
@@ -3679,7 +3750,7 @@ static int gen_ldst(struct gen_state *state, uint32_t insn) {
                            | ((uint64_t)(rt2 & 0x1f) << 8)
                            | ((uint64_t)(rn & 0x1f) << 16)
                            | (((uint64_t)(uint16_t)off16) << 24);
-            bool fast_pair = rn != 31 && rt != 31 && rt2 != 31;
+            bool fast_pair = rt != 31 && rt2 != 31;   // rn == 31 (SP) is regs[31]
             void *gadget;
             if (L) {
                 if (is_ldpsw)
@@ -3693,6 +3764,17 @@ static int gen_ldst(struct gen_state *state, uint32_t insn) {
             }
             gen(state, (unsigned long) gadget);
             gen(state, param);
+            return 1;
+        }
+
+        // Pre/post-indexed X/W STP without XZR: one gadget (gpr_pair_wb).
+        // LDP stays on the three-gadget path (fused form measured slower).
+        if (!L && rt != 31 && rt2 != 31 && offset >= INT16_MIN && offset <= INT16_MAX) {
+            void *gadget = is64 ? (is_pre ? gadget_stp64_wb_m1 : gadget_stp64_wb_m2)
+                                : (is_pre ? gadget_stp32_wb_m1 : gadget_stp32_wb_m2);
+            gen(state, (unsigned long) gadget);
+            gen(state, (uint64_t)(rt & 0x1f) | ((uint64_t)(rt2 & 0x1f) << 8) | ((uint64_t)(rn & 0x1f) << 16) |
+                       ((uint64_t)(uint16_t)(int16_t)offset << 24));
             return 1;
         }
 
@@ -3827,6 +3909,16 @@ static int gen_ldst(struct gen_state *state, uint32_t insn) {
         bool is_pre_indexed = (mode == 3);
         bool is_unscaled = (mode == 0);  // STUR/LDUR - offset applied, no writeback
         bool is_load = (opc == 1) || (opc == 2) || (opc == 3);
+
+        // One gadget for LDUR/STUR and pre/post-indexed forms (gpr_ldst_simm).
+        if (rt != 31) {
+            void *gadget = gpr_ldst_simm_gadget(size, opc, is_unscaled ? 0 : is_pre_indexed ? 1 : 2);
+            if (gadget != NULL) {
+                gen(state, (unsigned long) gadget);
+                gen(state, (uint64_t) rt | ((uint64_t) rn << 8) | ((uint64_t)(uint16_t)(int16_t) imm9 << 16));
+                return 1;
+            }
+        }
 
         // Calculate address:
         // - mode=0 (unscaled): address = base + offset (no writeback)
@@ -4396,28 +4488,11 @@ static int gen_dp_reg(struct gen_state *state, uint32_t insn) {
             return 0;
         }
 
-        // Handle shifted case for logical ops
+        // Shifted logical ops: one specialized gadget (dp3).
         if (shift != 0 || imm6 != 0) {
-            void *gadget = NULL;
-            switch (opc) {
-                case 0: gadget = gadget_and_reg_shifted; break; // AND/BIC
-                case 1: gadget = gadget_orr_reg_shifted; break; // ORR/ORN
-                case 2: gadget = gadget_eor_reg_shifted; break; // EOR/EON
-                case 3: gadget = gadget_and_reg_shifted; break; // ANDS/BICS
-                default:
-                    gen_interrupt(state, INT_UNDEFINED);
-                    return 0;
-            }
-
-            gen(state, (unsigned long) gadget);
-            // Pack: rd(0-4), rn(8-12), rm(16-20), sf(24), S(25), N(26), shift_type(27-28)
-            uint64_t param = rd | (rn << 8) | (rm << 16) | ((uint64_t)sf << 24)
-                | ((opc == 3) ? (1UL << 25) : 0) | ((uint64_t)N << 26) | ((uint64_t)shift << 27);
-            gen(state, param);
-            gen(state, imm6);  // shift amount as second parameter
+            gen_dp3(state, dp3_logic[(opc << 1) | N][sf][shift], rd, rn, rm, imm6);
             return 1;
         }
-
         // Fast path: MOV Xd, Xm is ORR Xd, XZR, Xm (opc=1, N=0, rn=31)
         if (opc == 1 && N == 0 && rn == 31 && rd != 31 && rm != 31) {
             gen(state, (unsigned long)(sf ? gadget_mov_reg : gadget_mov_reg32));
@@ -4444,21 +4519,8 @@ static int gen_dp_reg(struct gen_state *state, uint32_t insn) {
             }
         }
 
-        void *gadget;
-        switch (opc) {
-            case 0: gadget = N ? gadget_and_reg : gadget_and_reg; break;  // AND/BIC
-            case 1: gadget = N ? gadget_orr_reg : gadget_orr_reg; break;  // ORR/ORN
-            case 2: gadget = N ? gadget_eor_reg : gadget_eor_reg; break;  // EOR/EON
-            case 3: gadget = N ? gadget_and_reg : gadget_and_reg; break;  // ANDS/BICS
-            default:
-                gen_interrupt(state, INT_UNDEFINED);
-                return 0;
-        }
-
-        gen(state, (unsigned long) gadget);
-        // Pack: rd(0-4), rn(8-12), rm(16-20), sf(24), S(25), N(26)
-        uint64_t param = rd | (rn << 8) | (rm << 16) | ((uint64_t)sf << 24) | ((opc == 3) ? (1UL << 25) : 0) | ((uint64_t)N << 26);
-        gen(state, param);
+        // Unshifted logical ops not covered above: dp3 with LSL #0.
+        gen_dp3(state, dp3_logic[(opc << 1) | N][sf][0], rd, rn, rm, 0);
         return 1;
     }
 
@@ -4505,17 +4567,8 @@ static int gen_dp_reg(struct gen_state *state, uint32_t insn) {
             return 1;
         }
 
-        // Generic path: handles 32-bit, shifted, XZR/SP cases
-        void *gadget;
-        if (S) {
-            // Flag-setting versions (ADDS, SUBS, CMP, CMN)
-            gadget = op ? gadget_subs_reg : gadget_adds_reg;
-        } else {
-            gadget = op ? gadget_sub_reg : gadget_add_reg;
-        }
-        gen(state, (unsigned long) gadget);
-        // Pack: rd | rn<<8 | rm<<16 | sf<<24 | S<<25 | shift_type<<26 | imm6<<32
-        gen(state, rd | (rn << 8) | (rm << 16) | ((uint64_t)sf << 24) | ((uint64_t)S << 25) | ((uint64_t)shift << 26) | ((uint64_t)imm6 << 32));
+        // Everything else (32-bit, shifted, XZR operands): one specialized gadget.
+        gen_dp3(state, dp3_arith[(op << 1) | S][sf][shift], rd, rn, rm, imm6);
         return 1;
     }
 

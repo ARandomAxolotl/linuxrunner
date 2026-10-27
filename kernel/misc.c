@@ -8,6 +8,15 @@
 
 int_t sys_prctl(dword_t option, addr_t arg2, addr_t arg3, addr_t arg4, addr_t arg5) {
     switch (option) {
+        case 1: // PR_SET_PDEATHSIG
+            if (arg2 >= NUM_SIGS) return _EINVAL;   // 0 clears
+            current->pdeath_signal = (int) arg2;
+            return 0;
+        case 2: { // PR_GET_PDEATHSIG
+            int_t signal = current->pdeath_signal;
+            if (user_put(arg2, signal)) return _EFAULT;
+            return 0;
+        }
         case 3: // PR_GET_DUMPABLE
             return current->mm ? atomic_load(&current->mm->dumpable) : 0;
         case 4: // PR_SET_DUMPABLE

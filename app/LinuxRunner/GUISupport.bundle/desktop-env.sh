@@ -37,7 +37,8 @@ linuxrunner_desktop() {
         unset _lr_d _lr_x _lr_r _lr_b _lr_v _lr_n _lr_line _lr_f _lr_found
         return 1
     fi
-    export DISPLAY="$_lr_d" XAUTHORITY="$_lr_x"
+    export DISPLAY="$_lr_d" XAUTHORITY="$_lr_x" XDG_SESSION_TYPE=x11
+    export QT_QPA_PLATFORM=${QT_QPA_PLATFORM:-xcb} QT_FORCE_STDERR_LOGGING=${QT_FORCE_STDERR_LOGGING:-1}
     if [ "$(id -u)" != 0 ]; then
         if [ -n "$_lr_r" ] && [ -d "$_lr_r" ] && [ -O "$_lr_r" ]; then export XDG_RUNTIME_DIR="$_lr_r"; fi
         [ -z "$_lr_b" ] || export DBUS_SESSION_BUS_ADDRESS="$_lr_b"

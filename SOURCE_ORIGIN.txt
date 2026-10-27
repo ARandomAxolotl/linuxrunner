@@ -1,15 +1,19 @@
-LinuxRunner 1.0.0 — source provenance
+LinuxRunner — source provenance
 
 Maintainer: Leminos (mxhm11cr)
 Direct upstream: https://github.com/rcarmo/ios-linuxkit
 Earlier upstream: https://github.com/ish-app/ish
 Upstream base revision: abe413540d4ff8b4ad6b52447ab80f824c58495f
-Original application release source: ac696aca3c9e7d0a282244ba17197b9258735282
-Original IPA SHA-256: 710dcf42afa27c8a0fe1928352fa4d3ecbc6a3cbbd0f6801b409d23a872a686d
+Original 1.0.0 application source: ac696aca3c9e7d0a282244ba17197b9258735282
+1.0.1 original application source baseline: 52410d01d0264898b900cb76c8eea74cdb7aaaf6
 
-This publication snapshot preserves the original application and packaged resources,
-with updated documentation, screenshots, portable build configuration and generic
-source comments. Original copyrights and license terms remain in the source.
+This release snapshot includes Arch recovery and desktop stabilization.
+Publication preserves the existing public Git history without importing private
+development reports. Documentation and portability updates do not change runtime
+behavior. The attached source manifest records this public snapshot and the
+original application source baseline.
+IPA SHA-256: c571c7ae1dd8ab641930e513254866658dc94f0bee370f1d2623cd462f0fa2ca
+Original copyright and license terms remain in their files.
 
 Pinned dependency revisions:
 deps/glslang  a57276bf558f5cf94d3a9854ebdf5a2236849a5a

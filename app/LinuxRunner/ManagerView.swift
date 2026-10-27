@@ -100,7 +100,15 @@ import AVFoundation
             environments[index].storageBytes = measured[environments[index].id]
             if active(environments[index]) {
                 environments[index].lastBootResult = "Runtime running; application acceptance recorded separately"
-                if environments[index].distributionID == "debian", FileManager.default.fileExists(atPath: LRRuntimeBridge.rootURL(environments[index].rootfsName).appendingPathComponent("data/var/lib/linuxrunner/initialized").path) { environments[index].installationState = "Base packages configured" }
+                if ["debian", "arch"].contains(environments[index].distributionID ?? "") {
+                    environments[index].installationState = FileManager.default.fileExists(atPath: LRRuntimeBridge.rootURL(environments[index].rootfsName).appendingPathComponent("data/var/lib/linuxrunner/initialized").path) ? "Base packages configured" : "First-start configuration pending; setup may require repair"
+                    let support = LRRuntimeBridge.exchangeURL(environments[index].rootfsName).appendingPathComponent(".linuxrunner/gui")
+                    if let profile = try? String(contentsOf: support.appendingPathComponent("profile-check.result"), encoding: .utf8) {
+                        let first = profile.components(separatedBy: .newlines).first ?? ""
+                        environments[index].desktopAvailability = first == "ready" ? "Components verified; session startup checked separately" : first
+                        environments[index].guiAvailability = first == "ready" ? "X11 components verified" : "Desktop profile requires repair"
+                    }
+                }
             }
         }
         try? persist()
@@ -319,7 +327,6 @@ struct ManagerView: View {
     @AppStorage("LinuxRunner.experimentalMemoryPCFusion") private var memoryPCFusion = true
     @AppStorage("LinuxRunner.appearance") private var appearance = "dark"
     private let sessionTimer = Timer.publish(every: 3, on: .main, in: .common).autoconnect()
-    @State private var newEnvironment = false
     /// What the full-screen graphical cover shows. The request is the cover's
     /// item, so its content receives the request itself: separate @State
     /// flags read only inside the content closure were captured stale, and
@@ -377,7 +384,6 @@ struct ManagerView: View {
             Button("Stop", role: .destructive) { LRRuntimeBridge.stopDesktopSession(); desktopSummary = LRRuntimeBridge.desktopSessionSummary() }
         } message: { Text("Save documents first. This closes applications owned by the desktop; persistent files and the terminal environment remain.") }
         .fullScreenCover(item: $graphical) { request in NativeController(controller: presentedController(request)) }
-        .sheet(isPresented: $newEnvironment) { CreateEnvironmentView { manager.create(name: $0) } }
         .sheet(isPresented: $diagnostics) { DeveloperDiagnosticsView() }
         .fullScreenCover(item: $session) { item in
             TerminalScreen(controller: item.controller)
@@ -507,8 +513,6 @@ struct ManagerView: View {
             } }
             Section("Add Environment") {
                 Button { setupStep = "welcome"; setup = true } label: { Label("Set Up Linux…", systemImage: "sparkles") }
-                NavigationLink("Install Debian GNU/Linux ARM64", destination: DebianInstallerView { manager.acceptInstalled($0) })
-                Button("Create Alpine Environment") { newEnvironment = true }.disabled(manager.busy)
                 if manager.busy { ProgressView("Preparing environment…") }
             }
             Section { Text("Each distribution retains its own packages and files. One runtime is active at a time; switching takes effect after relaunch.").font(.footnote).foregroundColor(.secondary) }
@@ -610,6 +614,13 @@ struct ManagerView: View {
                 Text("Created: \(environment.createdAt.formatted())")
                 if let last = environment.lastBootedAt { Text("Last boot: \(last.formatted())") }
                 Button("Open Terminal") { openTerminal(environment) }.disabled(!manager.active(environment))
+                Button("Set Up Linux…") {
+                    UserDefaults.standard.set(environment.distributionID ?? "alpine", forKey: "LinuxRunnerSetup.distribution")
+                    UserDefaults.standard.set(environment.rootfsName, forKey: "LinuxRunnerSetup.root")
+                    LRRuntimeBridge.setNextRootName(environment.rootfsName)
+                    setupStep = manager.active(environment) ? "account" : "relaunch"
+                    setup = true
+                }
                 NavigationLink("Application Launcher", destination: ApplicationGridView(manager: manager, run: run))
                 Text("Start GUI support here before running X11 apps. DISPLAY is supplied by the managed session, not a global terminal variable.").font(.caption)
                 if !manager.active(environment) {
@@ -883,7 +894,7 @@ struct PackageView: View {
                 Button("Diagnose Package State") { execute("diagnose") }
                 Button("Check Dependencies") { execute("dependencies") }
                 if environment.distributionID == "debian" { Button("Configure Interrupted Debian Packages") { confirm("configure") } }
-                Button("Repair Dependencies / APK Packages") { confirm("repair") }
+                Button("Check / Repair Package State") { confirm("repair") }
                 Button("Reset GUI Sessions") { LRRuntimeBridge.resetGraphicalSessions(); refreshApplications() }
                 Text("Repair runs native maintainer scripts and keeps a package-database metadata checkpoint inside Linux. It is not a full snapshot or automatic rollback. APT dependency repair asks for confirmation before changing packages. Safe diagnostic mode: use Diagnose and Check Dependencies before repair.").font(.caption)
             }.disabled(!enabled)
@@ -900,7 +911,7 @@ struct PackageView: View {
             Button("Continue in Linux Terminal") { if let operation = pendingOperation { execute(operation) } }
             Button("Cancel", role: .cancel) {}
         } message: {
-            Text(pendingOperation == "install" ? "Install \(query) and its package-manager-selected dependencies into \(environment.name)? User files and browser profiles are preserved." : pendingOperation == "upgrade" ? "Review an upgrade of \(query) and its required dependencies. The real package-manager plan is shown before a separate confirmation. APT may ask again if dependencies change. No system-wide upgrade or package removal is requested." : pendingOperation == "remove" ? "Review removal of \(query) in \(environment.name). The terminal will list affected packages and ask before removing them. No purge or autoremove is requested." : "Run package configuration/repair in \(environment.name). Maintainer scripts may update system configuration. A metadata checkpoint is saved first; this does not restore arbitrary filesystem changes.")
+            Text(pendingOperation == "install" ? "Install \(query) and its dependencies into \(environment.name)? Arch also synchronizes and upgrades the system to keep rolling dependencies consistent, with a separate pacman confirmation in the terminal." : pendingOperation == "upgrade" ? "Review an upgrade of \(query) and its dependencies. Arch requires a consistent system upgrade and shows that transaction in pacman before confirmation; Debian and Alpine upgrade the named package." : pendingOperation == "remove" ? "Review removal of \(query) in \(environment.name). The terminal will list affected packages and ask before removing them. No purge or autoremove is requested." : "Run package configuration/repair in \(environment.name). Maintainer scripts may update system configuration. A metadata checkpoint is saved first; this does not restore arbitrary filesystem changes.")
         }
         .sheet(item: $share) { ShareView(item: $0) }
     }
@@ -1277,7 +1288,7 @@ private struct DesktopPreferencesView: View {
     private var key: String { "LinuxRunnerDesktop.resolution." + LRRuntimeBridge.activeRootName() }
     var body: some View { Form {
         Section("Next Desktop Start") {
-            Picker("Resolution", selection: $resolution) { Text("640 × 480").tag(0); Text("800 × 600").tag(1); Text("1024 × 768").tag(2); Text("960 × 540 · Wide").tag(3) }
+            Picker("Resolution", selection: $resolution) { Text("640 × 480").tag(0); Text("800 × 600").tag(1); Text("1024 × 768").tag(2); Text("960 × 540 · Wide").tag(3); Text("Fit Screen").tag(4) }
             Toggle("Immersive Landscape", isOn: $autoFullscreen)
             Text("Applies after saving documents and stopping the current desktop. The existing session is not resized or interrupted.").font(.caption)
         }
@@ -1290,7 +1301,7 @@ private struct DesktopPreferencesView: View {
             Text("Applies when reopening the viewer. Presents the received framebuffer through Metal, with Core Graphics fallback. Linux applications still use software rendering and the ARM64 interpreter. Physical-device performance has not yet been verified.").font(.caption)
         }
         Section("Execution") { Text("ARM64 interpreter; JIT is not required. The renderer for Linux applications is chosen in Settings › Graphics.").font(.caption) }
-    }.navigationTitle("Display & Gestures").onAppear { resolution = UserDefaults.standard.object(forKey: key) == nil ? 3 : min(3, max(0, UserDefaults.standard.integer(forKey: key))) }.onChange(of: resolution) { UserDefaults.standard.set($0, forKey: key) } }
+    }.navigationTitle("Display & Gestures").onAppear { resolution = UserDefaults.standard.object(forKey: key) == nil ? 3 : min(4, max(0, UserDefaults.standard.integer(forKey: key))) }.onChange(of: resolution) { UserDefaults.standard.set($0, forKey: key) } }
 }
 /// Graphics renderer for Linux applications, plus live evidence of what actually ran on the GPU.
 // Folders the user picks in Files (iPhone, iCloud Drive, other providers or an
@@ -1513,7 +1524,12 @@ private struct SharedFoldersView: View {
 }
 
 private struct DesktopEnvironmentView: View {
-    @AppStorage("LinuxRunnerDesktop.environment") private var environment = "linuxrunner"
+    @AppStorage private var environment: String
+    init() {
+        let key = "LinuxRunnerDesktop.environment." + LRRuntimeBridge.activeRootName()
+        let previous = LRRuntimeBridge.activeEnvironmentIsDebian() ? UserDefaults.standard.string(forKey: "LinuxRunnerDesktop.environment") : nil
+        _environment = AppStorage(wrappedValue: previous ?? "linuxrunner", key)
+    }
     @State private var installed = LRRuntimeBridge.plasmaInstalled()
     @State private var working: String?
     @State private var failure: String?
@@ -1521,15 +1537,16 @@ private struct DesktopEnvironmentView: View {
         Section {
             Picker("Desktop", selection: $environment) {
                 Text("LinuxRunner Desktop").tag("linuxrunner")
-                Text("KDE Plasma · Experimental").tag("plasma")
+                Text("KDE Plasma · Experimental").tag("plasma").disabled(!installed)
             }
             Text(environment == "plasma"
                  ? "KDE Plasma 6 (X11 session: KWin, Plasma panel and desktop, Dolphin, Konsole) from Debian's own packages. It needs more memory and starts more slowly than the LinuxRunner Desktop. If it is not installed, Open Desktop starts the LinuxRunner Desktop."
-                 : "Openbox window manager, panel and file manager: the lightest and most tested desktop.").font(.caption)
+                 : LRRuntimeBridge.activeEnvironmentIsArch() ? "Arch X11 desktop: Openbox window manager, LXQt panel and PCManFM-Qt file manager." : "Openbox window manager, panel and file manager: the lightest and most tested desktop.").font(.caption)
         } header: { Text("Open Desktop Starts") } footer: { Text("Applies to the next desktop start. Stop a running desktop first to switch.") }
         Section {
             if installed { Label("KDE Plasma installed", systemImage: "checkmark.circle") }
-            else if !LRRuntimeBridge.activeEnvironmentIsDebian() { Text("KDE Plasma is available for Debian environments.").foregroundColor(.secondary) }
+            else if LRRuntimeBridge.activeEnvironmentIsArch() { Text("Arch's current Plasma 6.8 packages require Wayland. LinuxRunner currently supports X11; use LinuxRunner Desktop. Plasma on Arch has not been validated.").foregroundColor(.secondary) }
+            else if !LRRuntimeBridge.activeEnvironmentIsDebian() { Text("KDE Plasma installation is available for Debian environments.").foregroundColor(.secondary) }
             else {
                 Button(working == nil ? "Install KDE Plasma" : "Installing…") { install() }.disabled(working != nil || !LRRuntimeBridge.isRunning())
                 if let working { Text(working).font(.caption).foregroundColor(.secondary) }

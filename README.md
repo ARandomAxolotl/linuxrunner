@@ -1,87 +1,135 @@
-# LinuxRunner
+<p align="center">
+  <img src="assets/branding/linuxrunner-icon.svg" alt="LinuxRunner app icon" width="160">
+</p>
 
-### Linux on your iPhone.
+<h1 align="center">LinuxRunner</h1>
+<h3 align="center">Linux on your iPhone and iPad.</h3>
 
-Run ARM64 Linux userspace applications and desktop environments on iOS, powered by a custom ARM64 interpreter and Linux compatibility layer.
+<p align="center">ARM64 Linux userspace, terminals and desktop applications on iOS and iPadOS.</p>
 
-**No jailbreak. No virtual machine. No JIT.**
+<p align="center">
+  <img src="assets/branding/platform-badge.svg" alt="Platform: iOS and iPadOS">
+  <img src="assets/branding/architecture-badge.svg" alt="Guest architecture: ARM64">
+  <a href="LICENSE.md"><img src="assets/branding/license-badge.svg" alt="License: GPL-3.0"></a>
+</p>
 
-![KDE Plasma with Dolphin running in LinuxRunner on iPhone](assets/screenshots/kde-plasma-dolphin.png)
+LinuxRunner uses a custom ARM64 interpreter and Linux compatibility layer to load Linux programs, implement their system calls and connect them to storage, networking and a graphical desktop on supported devices.
 
-**KDE Plasma**
+**No jailbreak. No virtual machine. No JIT required by the release build.**
 
-## What LinuxRunner can do
+[Download the latest release](https://github.com/mxhm11cr/LinuxRunner/releases/latest) · [Set up Linux](docs/GETTING_STARTED.md) · [Troubleshooting](docs/TROUBLESHOOTING.md)
 
-- **Choose your Linux environment.** Install Debian ARM64 or use bundled Alpine ARM64, with a shell, Linux user accounts and package managers such as `apt` and `apk`.
-- **Open a Linux desktop.** Use LinuxRunner Desktop or explore KDE Plasma, with windows, a panel and a file manager.
-- **Run Linux applications.** Work with Dolphin and Konsole, browse with Firefox or Chromium, and explore Blender. Compatibility varies by application, version and workload.
-- **Use familiar development tools.** Install compilers, Python, Node.js and other available ARM64 Linux packages.
-- **Explore Linux graphics.** Mesa provides software rendering; experimental Metal acceleration supports selected OpenGL rendering paths.
+[![KDE Plasma with Dolphin in LinuxRunner](assets/screenshots/linuxrunner-dolphin.png)](assets/screenshots/linuxrunner-dolphin.png)
 
-KDE Plasma and Metal acceleration are experimental. Browsers, Blender and other demanding applications have compatibility and memory limits.
-
-## Screenshots
-
-<table>
-  <tr>
-    <td align="center"><a href="assets/screenshots/home.png"><img src="assets/screenshots/home.png" width="240" alt="LinuxRunner home interface"></a><br><b>LinuxRunner</b></td>
-    <td align="center"><a href="assets/screenshots/terminal.jpg"><img src="assets/screenshots/terminal.jpg" width="240" alt="ARM64 Linux terminal in LinuxRunner"></a><br><b>Linux Terminal</b></td>
-    <td align="center"><a href="assets/screenshots/settings.png"><img src="assets/screenshots/settings.png" width="240" alt="LinuxRunner Settings"></a><br><b>Settings</b></td>
-  </tr>
-</table>
+**KDE Plasma** — an experimental Debian desktop option.
 
 <table>
-  <tr>
-    <td align="center"><a href="assets/screenshots/kde-plasma.png"><img src="assets/screenshots/kde-plasma.png" width="440" alt="KDE Plasma with Konsole and Dolphin"></a><br><b>KDE Plasma</b></td>
-    <td align="center"><a href="assets/screenshots/desktop.png"><img src="assets/screenshots/desktop.png" width="440" alt="LinuxRunner Desktop with a terminal and file manager"></a><br><b>LinuxRunner Desktop</b></td>
-  </tr>
-  <tr>
-    <td align="center"><a href="assets/screenshots/firefox.png"><img src="assets/screenshots/firefox.png" width="440" alt="Firefox displaying example.com"></a><br><b>Firefox</b></td>
-    <td align="center"><a href="assets/screenshots/blender.jpg"><img src="assets/screenshots/blender.jpg" width="440" alt="Blender viewport with a cube"></a><br><b>Blender</b></td>
-  </tr>
+<tr>
+<td align="center"><a href="assets/screenshots/linuxrunner-home.png"><img src="assets/screenshots/linuxrunner-home.png" alt="LinuxRunner Home" width="220"></a><br><b>LinuxRunner</b></td>
+<td align="center"><a href="assets/screenshots/linuxrunner-settings.png"><img src="assets/screenshots/linuxrunner-settings.png" alt="LinuxRunner Settings" width="220"></a><br><b>Settings</b></td>
+</tr>
+<tr>
+<td align="center"><a href="assets/screenshots/linuxrunner-firefox.png"><img src="assets/screenshots/linuxrunner-firefox.png" alt="Firefox showing example.com" width="420"></a><br><b>Firefox</b></td>
+<td align="center"><a href="assets/screenshots/linuxrunner-blender-viewport.jpg"><img src="assets/screenshots/linuxrunner-blender-viewport.jpg" alt="Blender viewport" width="420"></a><br><b>Blender</b></td>
+</tr>
 </table>
+
+LinuxRunner on iPhone: KDE Plasma, Firefox, Blender and Arch Linux ARM. The Arch capture below shows Telegram Desktop. Setup and iPad screenshots will be added when supplied.
+
+### Telegram Desktop on Arch Linux ARM
+
+<p align="center">
+  <a href="assets/screenshots/arch-telegram-iphone.jpg"><img src="assets/screenshots/arch-telegram-iphone.jpg" alt="Telegram Desktop welcome screen on Arch Linux ARM in LinuxRunner on iPhone" width="360"></a>
+</p>
+
+**Telegram Desktop** — tested on Arch Linux ARM: login, sending messages and calls. The supplied iPhone capture shows its welcome screen.
+
+## Highlights
+
+- **Three Linux distributions:** Debian GNU/Linux ARM64, Arch Linux ARM and Alpine Linux ARM64, each with its own packages and files.
+- **A Linux terminal:** shells, standard user accounts, package managers and available ARM64 command-line tools.
+- **Linux desktops and applications:** an X11 desktop with windows, a panel and file management; experimental KDE Plasma on Debian.
+- **Touch, keyboard and pointer input:** on-screen controls, hardware keyboard forwarding and supported mouse/trackpad events.
+- **Files and networking:** import/export, optional shared folders and Linux sockets over the device's network, subject to iOS restrictions.
+- **New in 1.0.1:** iPad desktop adaptations, unified distribution setup, Arch package recovery and desktop/session improvements. [Changelog](CHANGELOG.md)
+
+## Supported Devices
+
+| Device | Configuration | Qualification |
+| --- | --- | --- |
+| iPhone | ARM64; iOS 15.0 deployment target; portrait and both landscape orientations | The maintainer reports build 897 running Arch, its graphical desktop and graphical applications on a physical iPhone. |
+| iPad | ARM64; iPadOS 15.0 deployment target; all four orientations | iPad support is included in v1.0.1 and has been tested on a physical iPad. |
+
+Deployment targets describe the build configuration, not a guarantee for every device or OS version. Available memory and storage affect practical workloads. An older report of an iPhone 11/iOS 17 launch black screen remains unresolved.
+
+### LinuxRunner on iPad
+
+The larger display gives Linux windows more room. The viewer sizes a new **Fit Screen** session to the current window and provides **Fit to Screen**, **Actual Size**, touch gestures, hardware keyboard forwarding and pointer handling. Desktop actions also have Control–Option–Command shortcuts. Rotation and window size are handled by the interface; changing the Linux display resolution takes effect at the next desktop start. iPad support has been physically tested by the maintainer. [Controls and shortcuts](docs/GETTING_STARTED.md#11-launch-and-use-the-desktop)
+
+## Supported Linux Distributions
+
+| Distribution | Terminal | Package manager | Desktop | Status |
+| --- | --- | --- | --- | --- |
+| Debian GNU/Linux 13 ARM64 | Supported | `apt` / `dpkg` | LinuxRunner Desktop; KDE Plasma experimental | Recommended starting point |
+| Arch Linux ARM | Supported | `pacman` | Openbox with LXQt Panel and PCManFM-Qt | Experimental; maintainer reports desktop success on iPhone build 897 |
+| Alpine Linux 3.24 ARM64 | Supported | `apk` | Desktop path exists; compatibility remains experimental | Best suited to a smaller terminal environment |
+
+Arch uses selected LXQt components, not a claim of a complete LXQt session. Current Arch Plasma and Wayland sessions are unavailable. Multiple environments can coexist; one runtime is active per app launch.
 
 ## Installation
 
-1. Download the latest LinuxRunner IPA from [GitHub Releases](https://github.com/mxhm11cr/LinuxRunner/releases/latest).
-2. Install the IPA using your preferred compatible sideloading tool, such as [Sideloadly](https://sideloadly.io/) or [AltStore Classic](https://altstore.io/).
-3. Open LinuxRunner on your iPhone.
-4. Follow the in-app setup instructions to install a Linux environment.
+1. Download the LinuxRunner IPA from [GitHub Releases](https://github.com/mxhm11cr/LinuxRunner/releases/latest).
+2. Install it with your preferred compatible IPA sideloading tool, such as [Sideloadly](https://sideloadly.io/) or [AltStore Classic](https://altstore.io/).
+3. Open LinuxRunner on your iPhone or iPad.
+4. Follow **Set Up Linux…** to install a distribution inside the app.
 
-The IPA is unsigned; your sideloading tool must sign it. Signing requirements, app refresh periods and compatibility depend on the tool and account you use. No particular sideloading service is guaranteed to work.
+Signing and compatibility depend on the selected method. The v1.0.1 packaging script produces an ad-hoc-signed IPA without an Apple provisioning profile; a compatible tool must provide the signing/provisioning needed for installation. Keep the same app identity and storage configuration when updating. [Download verification and signing](docs/INSTALLATION.md)
 
-App Group access is optional: LinuxRunner uses private app storage when it is unavailable. When updating, keep the bundle identifier and App Group settings consistent so existing environments remain accessible. Back up important files before changing signing settings.
+## Getting Started — Installing Linux in LinuxRunner
 
-## Getting started
+Installing the IPA installs the application. **You then install or configure a Linux distribution inside it.**
 
-Choose **Debian ARM64** for desktop applications, or **Alpine ARM64** for a smaller terminal environment. Complete the environment setup, reopen LinuxRunner when prompted, and create your Linux account.
+Open **Distributions → Set Up Linux… → Continue**. Choose Debian, Arch or Alpine, then continue to that distribution's install button. Follow the requested app relaunch, create or select a Linux account and install desktop components if wanted. Use **Home → Terminal** for a shell, or **Open Desktop** / **Resume Desktop** for a graphical session.
 
-For a graphical session, select **Install Desktop Components**, then **Open Desktop**. KDE Plasma is available through the desktop controls. Keep LinuxRunner open while installing packages; use the Terminal whenever you need a shell.
+The [step-by-step guide](docs/GETTING_STARTED.md) covers existing environments, account options, progress, terminal commands, package installation and desktop controls. It uses the labels in the current app.
 
-## How it works
+## Desktop Environments and Applications
 
-LinuxRunner interprets ARM64 Linux instructions and implements the Linux system calls that applications need. It runs Linux userspace inside the iOS application rather than booting an unmodified Linux kernel. It does not use QEMU.
+LinuxRunner Desktop is the default lightweight X11 session. On Debian, KDE Plasma can be installed later through **Settings → Desktop Environment**. On Arch, use the Openbox/LXQt-component desktop offered by setup.
 
-X11 applications draw to an Xvfb display, which the app presents through its desktop viewer. Mesa handles software OpenGL; an optional Metal bridge accelerates supported rendering operations. This graphics path is experimental and does not provide full OpenGL compatibility.
+Install software through **Home → App Manager** or the distribution's package manager. Start discovered graphical applications through **Home → Applications**. Use a regular Linux user for everyday work; `sudo` is available to accounts created with administrator privileges.
 
-## Compatibility and limitations
+**Telegram Desktop has been tested on Arch Linux ARM with build 897, including login, sending messages and calls.** Earlier supplied captures also show Dolphin, Firefox and Blender. [Application compatibility](docs/COMPATIBILITY.md)
 
-- **Linux environments:** Debian 13 and Alpine 3.24, ARM64. x86 and x86-64 applications are not supported.
-- **iOS:** deployment target 15.0 or later. Available memory, storage and the iOS version affect which workloads are practical.
-- **Applications:** package availability does not guarantee full compatibility. Browsers and Blender may encounter unsupported features, slow operations or crashes.
-- **Desktops and graphics:** KDE Plasma and Metal acceleration are experimental. Large workloads may exceed the memory available to the app.
-- **Foreground operation:** iOS can suspend LinuxRunner in the background. Keep Screen Awake prevents the foreground idle lock, not background suspension.
-- **Linux features:** kernel modules, systemd as init, containers and Wayland sessions are not supported. Direct hardware access is limited by iOS.
-- **Security:** Linux users and permissions do not isolate hostile programs from the app. See [SECURITY.md](SECURITY.md).
+## How LinuxRunner Works
 
-## Building from source
+The executable loader maps ARM64 Linux ELF programs and their libraries. The interpreter executes supported guest instructions through precompiled host routines. A userspace compatibility layer implements Linux system calls, processes, threads, signals, memory mappings and filesystem metadata. Linux sockets connect through the platform network APIs.
 
-Developers need Xcode with the iOS SDK, Python 3, Meson, Ninja and CMake. Build the **LinuxRunner** scheme in `iSH.xcodeproj`.
+Graphical applications use X11: Xvfb and x11vnc feed the native desktop viewer, which forwards display updates and input. Mesa supplies software OpenGL; an experimental Metal bridge accelerates selected rendering paths. This is userspace compatibility with instruction interpretation, rather than full-system emulation or hardware virtualization. LinuxRunner does not boot a Linux kernel or execute arbitrary guest code natively. [Architecture](docs/ARCHITECTURE.md)
 
-The [build guide](docs/BUILDING.md) covers cloning the repository, initializing the pinned dependencies and producing an unsigned IPA. Building from source is optional; ordinary installation uses the downloadable IPA.
+## Compatibility and Limitations
 
-## Credits and license
+- ARM64 Linux programs only; x86/x86-64 applications and Linux kernel boot are unsupported.
+- System-call and graphics coverage is incomplete. Package availability does not establish application compatibility.
+- Arch desktop, Debian KDE Plasma and Metal acceleration are experimental; demanding programs may be slow or exceed device memory limits.
+- No Wayland session, systemd as init, kernel modules or conventional Linux containers.
+- iOS/iPadOS can suspend or terminate the app. **Done** retains a running desktop within the app; termination does not preserve running Linux processes.
+- Linux accounts and permissions do not isolate hostile software from the application. The platform sandbox is the security boundary.
 
-Maintained by **Leminos ([@mxhm11cr](https://github.com/mxhm11cr))**. LinuxRunner builds on [iSH](https://github.com/ish-app/ish), by Theodore Dubois and contributors, through [ios-linuxkit](https://github.com/rcarmo/ios-linuxkit), by Rui Carmo and contributors.
+See [compatibility](docs/COMPATIBILITY.md), [known limitations](docs/KNOWN_LIMITATIONS.md) and the [security policy](SECURITY.md).
 
-The combined application is GPL-3.0-covered, with the upstream contribution-specific terms and App Store exception preserved in [LICENSE.md](LICENSE.md) and [LICENSE.IOS](LICENSE.IOS). Third-party components keep their own licenses; see [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md). LinuxRunner is an independent downstream project.
+## Troubleshooting and Bug Reports
+
+Start with [Troubleshooting](docs/TROUBLESHOOTING.md). The App Manager's **Repair Center** provides diagnosis and package repair; **Settings → Advanced → Export Open Desktop Report** collects startup/session information. Review reports for personal data before sharing.
+
+[Report a reproducible issue](https://github.com/mxhm11cr/LinuxRunner/issues/new/choose) with your device, OS, app version/build, distribution and steps. A launch report is useful even when an application is not fully compatible.
+
+## Building and Contributing
+
+Most users install the IPA. Developers can build the **LinuxRunner** scheme in `iSH.xcodeproj`; see the [build guide](docs/BUILDING.md) for tool requirements, pinned dependencies and verification. [Contributing](CONTRIBUTING.md) covers focused changes and useful compatibility reports.
+
+## License and Acknowledgments
+
+Maintained by **Leminos ([mxhm11cr](https://github.com/mxhm11cr))**. LinuxRunner derives from [iSH](https://github.com/ish-app/ish), by Theodore Dubois and contributors, through [ios-linuxkit](https://github.com/rcarmo/ios-linuxkit), by Rui Carmo and contributors.
+
+The combined application is GPL-3.0-covered. Preserve upstream contribution-specific terms, copyright attribution and the App Store terms in [LICENSE.md](LICENSE.md) and [LICENSE.IOS](LICENSE.IOS). Third-party software retains its own licenses; see [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md). Linux distributions, desktops and applications are the work of their respective projects.

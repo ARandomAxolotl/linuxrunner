@@ -9,6 +9,8 @@ if command -v apk >/dev/null; then
     if ! apk info -e $packages >/dev/null 2>&1; then apk add --no-cache $packages; fi
 elif command -v apt-get >/dev/null; then
     apt-get install -y --no-install-recommends libqt6webenginewidgets6 libqt6webenginecore6-bin firefox-esr libgl1-mesa-dri fonts-dejavu-core
+elif command -v pacman >/dev/null; then
+    pacman -Syu --needed --noconfirm qt6-webengine firefox mesa ttf-dejavu
 else support_fail BROWSER_INSTALL package-manager-unsupported; fi
 # Firefox is independently installed and checked before the Qt build.
 /bin/sh ./browser-preflight.sh firefox
@@ -19,6 +21,8 @@ if [ "$required" = yes ]; then
     # Use a temporary build group; runtime launches need no WebEngine headers.
     if command -v apk >/dev/null; then
         apk add --no-cache --virtual .linuxrunner-browser-build qt6-qtwebengine-dev
+    elif command -v pacman >/dev/null; then
+        pacman -S --needed --noconfirm qt6-webengine
     else
         # APT dev packages may already be user-owned. Do not autoremove them.
         apt-get install -y --no-install-recommends qt6-webengine-dev

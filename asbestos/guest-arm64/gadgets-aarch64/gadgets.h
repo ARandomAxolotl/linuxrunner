@@ -54,6 +54,23 @@ _tlb    .req x2
 // Current instruction pointer (guest PC)
 _pc     .req x28
 
+// dst = owning block's guest address, given a pointer to its code[] (block->code).
+// One load when the negative offset fits (gadget builds); ISH_JIT builds have a
+// larger struct fiber_block, beyond the [-256, 255] unscaled range.
+.macro load_block_addr dst, codeptr
+.if (FIBER_BLOCK_code - FIBER_BLOCK_addr) <= 256
+    ldur \dst, [\codeptr, #(-FIBER_BLOCK_code + FIBER_BLOCK_addr)]
+.else
+    sub \dst, \codeptr, #FIBER_BLOCK_code
+    ldr \dst, [\dst, #FIBER_BLOCK_addr]
+.endif
+.endm
+
+// Timer cycle counter (cpu->cycle, low 32 bits) while executing gadget code.
+// Reserved: gadgets must not use x27/w27 as scratch.
+_cycle   .req x27
+_cycle_w .req w27
+
 // Temporary registers for gadget use
 _tmp    .req x0
 _tmp2   .req x8

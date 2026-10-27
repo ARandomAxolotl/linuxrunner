@@ -79,6 +79,9 @@ bool proc_root_lookup(const char *name, struct proc_entry *entry);
 mode_t_ proc_entry_mode(struct proc_entry *entry);
 void proc_entry_getname(struct proc_entry *entry, char *buf);
 int proc_entry_stat(struct proc_entry *entry, struct statbuf *stat);
+uint64_t proc_entry_inode(struct proc_entry *entry);
+int proc_show_mounts(struct proc_entry *entry, struct proc_data *buf);
+int proc_show_mountinfo(struct proc_entry *entry, struct proc_data *buf);
 void proc_entry_cleanup(struct proc_entry *entry);
 // Linux proc_fd_permission exempts only this thread group's fd directory.
 bool proc_pid_fd_same_group(struct proc_entry *entry);

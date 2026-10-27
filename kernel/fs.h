@@ -82,6 +82,7 @@ struct mount {
     int flags;
     const struct fs_ops *fs;
     unsigned refcount;
+    uint64_t id; // unique for the runtime's lifetime: statx STATX_MNT_ID, /proc/*/mountinfo
     struct list mounts;
 
     int root_fd;

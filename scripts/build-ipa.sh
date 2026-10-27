@@ -63,10 +63,29 @@ if [[ $mode == unsigned ]]; then
     mkdir "$staging/Payload"
     app="$archive/Products/Applications/LinuxRunner.app"
     test -d "$app" || { echo "Missing archived app: $app" >&2; exit 1; }
+    # Ad-hoc signature with the resolved entitlements. Not an Apple signature: it
+    # gives installers that keep or extend an existing signature (TrollStore,
+    # LiveContainer, AltSign/zsign-based tools) a well-formed code signature and
+    # entitlements to work from; re-signing tools replace it. 1.0.0 shipped with
+    # no signature at all.
+    python3 - "$staging/entitlements.plist" "${BUNDLE_ID:-dev.linuxrunner.app}" "$diagnostic" <<'PYADHOC'
+import plistlib, sys
+with open(sys.argv[1], 'wb') as out:
+    plistlib.dump({} if sys.argv[3] == 'YES' else {'com.apple.security.application-groups': ['group.' + sys.argv[2]]}, out)
+PYADHOC
+    # Retain exactly the signed executable shipped in the IPA, so the archive
+    # provenance check remains byte-for-byte strict after ad-hoc signing.
+    codesign --force --sign - --timestamp=none --generate-entitlement-der --entitlements "$staging/entitlements.plist" "$app"
+    codesign --verify --strict "$app"
     ditto --norsrc --noextattr --noacl --noqtn "$app" "$staging/Payload/LinuxRunner.app"
-    ditto -c -k --norsrc --noextattr --noacl --noqtn --keepParent "$staging/Payload" "$staging/LinuxRunner.ipa"
+    codesign --verify --strict "$staging/Payload/LinuxRunner.app"
+    # Info-ZIP: sizes in local headers (no data descriptors) and no platform extra
+    # fields, which streaming ZIP readers in some installers require.
+    (cd "$staging" && zip -q -r -X -y LinuxRunner.ipa Payload)
     mv "$staging/LinuxRunner.ipa" "$ipa"
-    printf 'UNSIGNED IPA. Requires signing and provisioning before physical-device installation.\nBundle ID: %s\nApp group: group.%s\nEmbedded extensions: none in this ARM64 scheme\nPrivate Application Support fallback: supported\n' \
+    python3 scripts/validate-ipa.py "$ipa" --report "$release/$artifact.validation.json" ||
+        { echo 'IPA validation failed; do not publish this artifact.' >&2; exit 1; }
+    printf 'UNSIGNED IPA (ad-hoc signed, no Apple signature). Requires signing and provisioning before physical-device installation.\nBundle ID: %s\nApp group: group.%s\nEmbedded extensions: none in this ARM64 scheme\nPrivate Application Support fallback: supported\n' \
         "${BUNDLE_ID:-dev.linuxrunner.app}" "${BUNDLE_ID:-dev.linuxrunner.app}" > "$release/SIGNING-STATUS.txt"
 else
     options="${EXPORT_OPTIONS_PLIST:-$release/ExportOptions.plist}"

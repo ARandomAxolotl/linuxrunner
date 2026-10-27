@@ -57,6 +57,7 @@ browser_packages() {
     if command -v apk >/dev/null; then apk info -v qt6-qtbase qt6-qtwebengine
     elif command -v dpkg-query >/dev/null; then
         dpkg-query -W -f='${Package}=${Version}\n' libqt6widgets6 libqt6webenginewidgets6 libqt6webenginecore6-bin
+    elif command -v pacman >/dev/null; then pacman -Q qt6-base qt6-webengine
     else return 1; fi
 }
 browser_key() {

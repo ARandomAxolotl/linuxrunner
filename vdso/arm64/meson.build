@@ -37,11 +37,22 @@ if has_vdso_compiler
             '-shared', '-fPIC', '-ffreestanding'
         ] + get_option('vdso_c_args').split())
 else
-    # Create a dummy vdso target if no complete compiler/linker is available
-    # This allows building for ARM64 guest even without a vdso
+    # Without clang + lld only an empty placeholder can be embedded: signal
+    # handlers then return through a stack trampoline instead of the vDSO's
+    # __kernel_rt_sigreturn. Release builds (app/xcode-meson.sh) require the
+    # real vDSO so every IPA behaves the same (GitHub issue #3).
+    if get_option('vdso_required')
+        error('ARM64 vDSO required but no aarch64 clang + lld found. Install lld (brew install lld) and reconfigure.')
+    endif
     message('ARM64 VDSO: No suitable cross-compiler/linker found, VDSO will not be built')
     # Create an empty file as placeholder
     vdso = custom_target('vdso-arm64-stub',
         output: 'libvdso.so.elf',
         command: ['touch', '@OUTPUT@'])
 endif
+
+# vdso_blob.c: the vDSO as a C array (a tracked dependency, unlike .incbin).
+vdso_blob = custom_target('vdso-blob',
+    input: vdso,
+    output: 'vdso_blob.c',
+    command: [find_program('python3'), files('embed.py'), '@INPUT@', '@OUTPUT@', '2'])

@@ -5,6 +5,8 @@ sh ./install.sh
 if command -v apk >/dev/null; then
     packages='qt6-qtbase-dev qt6-qtbase-x11 font-dejavu'
     if ! apk info -e $packages >/dev/null 2>&1; then apk add --no-cache $packages; fi
+elif command -v pacman >/dev/null; then
+    pacman -Syu --needed --noconfirm qt6-base ttf-dejavu
 else
     apt-get install -y --no-install-recommends qt6-base-dev qt6-qpa-plugins fonts-dejavu-core
 fi

@@ -376,4 +376,4 @@ poll semantics, and nested poll/select/epoll readiness with cycle/depth rejectio
 Code editor mouse/input/save and Brave local page/input/scroll acceptance pass.
 No complete namespaces/seccomp, full memfd sealing, full syscall conformance,
 browser Metal acceleration or physical-iPhone875 certification is claimed.
-This matrix records implementation scope; archived internal test reports are not part of the public source snapshot.
+See docs/reports/abi-browser-875-2026-10-15/RESULTS.md for exact scope and evidence.

@@ -12,6 +12,8 @@ if command -v apt-get >/dev/null; then
 elif command -v apk >/dev/null; then
     apk add --no-cache openbox xfce4-panel pcmanfm adwaita-icon-theme gdk-pixbuf-loaders font-dejavu dbus xterm
     apk add --no-cache pulseaudio pulseaudio-utils alsa-plugins-pulse || echo 'DESKTOP_INSTALL: sound packages unavailable; desktop continues without sound'
+elif command -v pacman >/dev/null; then
+    exec /bin/sh ./desktop-profile.sh repair
 else support_fail DESKTOP_INSTALL package-manager-unsupported; fi
 # D-Bus has a real persistent guest machine identity; never replace an existing one.
 mkdir -p /var/lib/dbus

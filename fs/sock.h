@@ -243,6 +243,7 @@ static inline int sock_flags_from_real(int real) {
 #define SO_LINGER_ 13
 #define SO_REUSEPORT_ 15
 #define SO_PEERCRED_ 17
+#define SO_PEERPIDFD_ 77
 #define SO_TIMESTAMP_ 29
 #define SO_PROTOCOL_ 38
 #define SO_DOMAIN_ 39

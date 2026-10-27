@@ -21,6 +21,14 @@ struct termios_ {
     byte_t cc[19];
 };
 
+// asm-generic/AArch64 ABI: legacy termios stays 36 bytes; termios2 adds
+// numeric input/output baud rates. Current Arch glibc uses TCGETS2 in isatty.
+struct termios2_ {
+    struct termios_ termios;
+    dword_t ispeed;
+    dword_t ospeed;
+};
+
 #define VINTR_ 0
 #define VQUIT_ 1
 #define VERASE_ 2
@@ -64,6 +72,10 @@ struct termios_ {
 #define TCSETS_ 0x5402
 #define TCSETSW_ 0x5403
 #define TCSETSF_ 0x5404
+#define TCGETS2_ 0x802c542a
+#define TCSETS2_ 0x402c542b
+#define TCSETSW2_ 0x402c542c
+#define TCSETSF2_ 0x402c542d
 #define TCFLSH_ 0x540b
 #define TIOCSCTTY_ 0x540e
 #define TIOCGPGRP_ 0x540f
@@ -121,6 +133,8 @@ struct tty {
 
     struct winsize_ winsize;
     struct termios_ termios;
+    dword_t ispeed;
+    dword_t ospeed;
     int type;
     int num;
 

@@ -4039,7 +4039,6 @@ ldxp_c_segfault:
     ubfx x24, x22, #8, #5       // rt (new lo)
     ubfx x25, x22, #16, #5      // rt2 (new hi)
     ubfx x26, x22, #24, #2      // size
-    mov x27, _addr              // save guest address
 
     // Load new values from guest regs
     add x9, _cpu, #CPU_x0
@@ -4057,7 +4056,7 @@ ldxp_c_segfault:
     // Check exclusive monitor state from the preceding LDXP/LDAXP
     ldr x10, [_cpu, #CPU_excl_pair_addr]
     ldr w11, [_cpu, #CPU_excl_pair_size]
-    cmp x10, x27
+    cmp x10, _addr
     b.ne stxp_c_fail
     cmp w11, w26
     b.ne stxp_c_fail
@@ -4067,7 +4066,7 @@ ldxp_c_segfault:
     ldr x22, [_cpu, #CPU_excl_pair_val_hi]
     save_c
     sub x0, _tlb, #TLB_entries
-    mov x1, x27
+    mov x1, _addr
     mov x2, x19
     mov x3, x22
     mov x4, x20
@@ -4076,7 +4075,6 @@ ldxp_c_segfault:
     bl NAME(c_stxp_pair)
     mov w19, w0
     restore_c
-    mov _addr, x27
 
     // Invalidate pair exclusive monitor after the attempt
     movn x8, #0
@@ -4106,7 +4104,7 @@ stxp_c_fail:
 7:  gret
 
 stxp_c_segfault:
-    str x27, [_cpu, #CPU_segfault_addr]
+    str _addr, [_cpu, #CPU_segfault_addr]
     mov w8, #1
     strb w8, [_cpu, #CPU_segfault_was_write]
     mov w0, #INT_GPF
@@ -4172,3 +4170,198 @@ stxp_c_segfault:
     lsr x20, x20, #32
     str w20, [x9, #8]           // W(s+1) = old_hi
 5:  gret
+
+/*
+ * Single-gadget GPR loads/stores with a signed immediate: unscaled (LDUR/STUR),
+ * pre-indexed and post-indexed. Before these, each such instruction took three
+ * or four gadgets (calc_addr_*, load/store, store_reg/load_reg, writeback).
+ *
+ * Code stream: [gadget addr][rt | rn<<8 | (int16)imm<<16]
+ * rt != 31 (gen.c keeps XZR forms on the generic path). rn == 31 is SP:
+ * cpu_state.sp directly follows x0..x30, so regs[31] is SP (static_assert in gen.c).
+ *
+ * Address, masking and writeback match the multi-gadget sequence exactly:
+ *   offset/pre: addr = (base + imm) & 48-bit   (calc_addr_imm)
+ *   post:       addr = base                     (calc_addr_base)
+ *   pre:  rn = addr                             (writeback_addr)
+ *   post: rn = (base + imm) & 48-bit            (update_base)
+ * Writeback happens after the access, so a faulting access retries cleanly
+ * (the instruction's lazy fault-PC record covers this gadget).
+ * kind: 0 = load zero-extend, 1 = load sign-extend to 32, 2 = load sign-extend
+ * to 64, 3 = store. mode: 0 = offset, 1 = pre, 2 = post.
+ */
+.macro gpr_ldst_simm name, kind, bytes, mode
+.gadget \name
+    ldr x22, [_pc]
+    add _pc, _pc, #8
+    ubfx x9, x22, #8, #5            // rn (31 = SP)
+    add x11, _cpu, #CPU_x0
+    ldr x12, [x11, x9, lsl #3]      // base
+.if \mode == 2
+    mov _addr, x12
+.else
+    sbfx x10, x22, #16, #16         // signed immediate
+    add _addr, x12, x10
+    and _addr, _addr, #0xffffffffffff
+.endif
+.if \kind == 3
+    and x8, x22, #0x1f
+    ldr x23, [x11, x8, lsl #3]      // value (rt != 31)
+.endif
+    mov x24, _addr
+.if \kind == 3
+    write_prep (\bytes*8), \name\()_1
+  .if \bytes == 8
+    str x23, [_addr]
+  .elseif \bytes == 4
+    str w23, [_addr]
+  .elseif \bytes == 2
+    strh w23, [_addr]
+  .else
+    strb w23, [_addr]
+  .endif
+    write_done (\bytes*8), \name\()_1
+.else
+    read_prep (\bytes*8), \name\()_1
+  .if \kind == 0
+    .if \bytes == 8
+    ldr x0, [_addr]
+    .elseif \bytes == 4
+    ldr w0, [_addr]
+    .elseif \bytes == 2
+    ldrh w0, [_addr]
+    .else
+    ldrb w0, [_addr]
+    .endif
+  .elseif \kind == 1
+    .if \bytes == 2
+    ldrsh w0, [_addr]
+    .else
+    ldrsb w0, [_addr]
+    .endif
+  .else
+    .if \bytes == 4
+    ldrsw x0, [_addr]
+    .elseif \bytes == 2
+    ldrsh x0, [_addr]
+    .else
+    ldrsb x0, [_addr]
+    .endif
+  .endif
+    and x8, x22, #0x1f
+    add x11, _cpu, #CPU_x0          // read miss calls C and may clobber x11
+    str x0, [x11, x8, lsl #3]
+.endif
+.if \mode != 0
+    add x11, _cpu, #CPU_x0
+    ubfx x9, x22, #8, #5
+  .if \mode == 1
+    str x24, [x11, x9, lsl #3]      // pre: rn = address
+  .else
+    sbfx x10, x22, #16, #16
+    add x12, x24, x10
+    and x12, x12, #0xffffffffffff
+    str x12, [x11, x9, lsl #3]      // post: rn = base + imm
+  .endif
+.endif
+    gret
+.if \kind == 3
+    write_bullshit (\bytes*8), \name\()_1
+.else
+    read_bullshit (\bytes*8), \name\()_1
+.endif
+.endm
+
+.irp mode, 0, 1, 2
+gpr_ldst_simm ld64_simm_m\mode, 0, 8, \mode
+gpr_ldst_simm ld32_simm_m\mode, 0, 4, \mode
+gpr_ldst_simm ld16_simm_m\mode, 0, 2, \mode
+gpr_ldst_simm ld8_simm_m\mode, 0, 1, \mode
+gpr_ldst_simm ld16sx32_simm_m\mode, 1, 2, \mode
+gpr_ldst_simm ld8sx32_simm_m\mode, 1, 1, \mode
+gpr_ldst_simm ld32sx64_simm_m\mode, 2, 4, \mode
+gpr_ldst_simm ld16sx64_simm_m\mode, 2, 2, \mode
+gpr_ldst_simm ld8sx64_simm_m\mode, 2, 1, \mode
+gpr_ldst_simm st64_simm_m\mode, 3, 8, \mode
+gpr_ldst_simm st32_simm_m\mode, 3, 4, \mode
+gpr_ldst_simm st16_simm_m\mode, 3, 2, \mode
+gpr_ldst_simm st8_simm_m\mode, 3, 1, \mode
+.endr
+
+/*
+ * Single-gadget STP (X or W) pre/post-indexed: replaces calc_addr_* + stp +
+ * writeback_addr/update_base. A load-pair form of this macro was measured and
+ * dropped: on M1 the fused epilogue LDP made call-heavy code ~8% slower than
+ * the three-gadget sequence (interp_bench "call"), so LDP keeps that path. Code stream as the signed-offset fast
+ * pair: [gadget addr][rt | rt2<<8 | rn<<16 | (int16)byte_offset<<24].
+ * rt, rt2 != 31; rn == 31 is SP. mode: 1 = pre, 2 = post. Registers are written
+ * before the base writeback, as in the multi-gadget sequence.
+ */
+.macro gpr_pair_wb name, is_load, bytes, mode
+.gadget \name
+    ldr x22, [_pc]
+    add _pc, _pc, #8
+    ubfx x9, x22, #16, #5           // rn (31 = SP)
+    add x11, _cpu, #CPU_x0
+    ldr x12, [x11, x9, lsl #3]
+.if \mode == 2
+    mov _addr, x12
+.else
+    sbfx x10, x22, #24, #16
+    add _addr, x12, x10
+    and _addr, _addr, #0xffffffffffff
+.endif
+.if \is_load == 0
+    and x8, x22, #0x1f
+    ubfx x9, x22, #8, #5
+    ldr x23, [x11, x8, lsl #3]
+    ldr x25, [x11, x9, lsl #3]
+.endif
+    mov x24, _addr
+.if \is_load
+    read_prep (\bytes*16), \name\()_1
+  .if \bytes == 8
+    ldr x23, [_addr]
+    ldr x25, [_addr, #8]
+  .else
+    ldr w23, [_addr]
+    ldr w25, [_addr, #4]
+  .endif
+    and x8, x22, #0x1f
+    ubfx x9, x22, #8, #5
+    add x11, _cpu, #CPU_x0          // read miss calls C and may clobber x11
+    str x23, [x11, x8, lsl #3]
+    str x25, [x11, x9, lsl #3]
+.else
+    write_prep (\bytes*16), \name\()_1
+  .if \bytes == 8
+    str x23, [_addr]
+    str x25, [_addr, #8]
+  .else
+    str w23, [_addr]
+    str w25, [_addr, #4]
+  .endif
+    write_done (\bytes*16), \name\()_1
+    add x11, _cpu, #CPU_x0
+.endif
+    ubfx x9, x22, #16, #5
+.if \mode == 1
+    str x24, [x11, x9, lsl #3]      // pre: rn = address
+.else
+    sbfx x10, x22, #24, #16
+    add x12, x24, x10
+    and x12, x12, #0xffffffffffff
+    str x12, [x11, x9, lsl #3]      // post: rn = base + offset
+.endif
+    gret
+.if \is_load
+    read_bullshit (\bytes*16), \name\()_1
+.else
+    write_bullshit (\bytes*16), \name\()_1
+.endif
+.endm
+
+.irp mode, 1, 2
+gpr_pair_wb stp64_wb_m\mode, 0, 8, \mode
+gpr_pair_wb stp32_wb_m\mode, 0, 4, \mode
+.endr

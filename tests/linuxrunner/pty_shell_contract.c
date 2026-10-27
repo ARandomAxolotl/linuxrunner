@@ -38,7 +38,7 @@ static int read_until(int master, const char *needle, int ms, char *acc, size_t 
     return 0;
 }
 
-int main(void) {
+int main(int argc, char **argv) {
     setvbuf(stdout, NULL, _IONBF, 0);
     char marker[] = "/tmp/lr-pty-XXXXXX";
     int tmp = mkstemp(marker); CHECK(tmp >= 0, "mkstemp"); close(tmp); unlink(marker);
@@ -59,7 +59,8 @@ int main(void) {
         dup2(slave, 0); dup2(slave, 1); dup2(slave, 2);
         if (slave > 2) close(slave);
         close(master);
-        execl("/bin/sh", "sh", "-i", (char *) NULL);
+        if (argc > 1) execv(argv[1], &argv[1]);
+        else execl("/bin/sh", "sh", "-i", (char *) NULL);
         _exit(13);
     }
     fcntl(master, F_SETFL, fcntl(master, F_GETFL) | O_NONBLOCK);
@@ -71,10 +72,12 @@ int main(void) {
     for (long long end = now_ms() + 15000; !prompt && now_ms() < end;)
         prompt = read_until(master, " ", 500, acc, sizeof acc) && (strchr(acc, '$') || strchr(acc, '#'));
     printf("prompt after %lld ms: %d\n", now_ms() - start, prompt);
-    snprintf(command, sizeof command, "echo LR_PTY_$((6*7)) > %s; echo DONE_$((40+2))\n", marker);
+    CHECK(prompt, "interactive prompt not observed");
+    snprintf(command, sizeof command, "echo LR_PTY_$((6*7)) > %s; echo ERROR_$((40+2)) >&2; echo DONE_$((40+2))\n", marker);
     CHECK(write(master, command, strlen(command)) == (ssize_t) strlen(command), "write command");
     acc[0] = 0;
     CHECK(read_until(master, "DONE_42", 15000, acc, sizeof acc), "shell output DONE_42 not seen; got '%s'", acc);
+    CHECK(strstr(acc, "ERROR_42") != NULL, "stderr not seen; got '%s'", acc);
     FILE *f = fopen(marker, "r"); char line[64] = "";
     if (f) { if (!fgets(line, sizeof line, f)) line[0] = 0; fclose(f); }
     CHECK(strstr(line, "LR_PTY_42") != NULL, "command did not run (file '%s')", line);

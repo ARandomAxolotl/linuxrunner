@@ -4,6 +4,7 @@ set -eu
 umask 077
 cd "$(dirname "$0")"
 . ./support-common.sh
+LR_PACMAN_RECOVERY_SCRIPT="$PWD/pacman-recover.sh"
 . ./package-lock.sh
 verify_resources
 operation=${1:-}; value=${2:-}
@@ -13,20 +14,62 @@ case "$operation" in
   [ -n "$value" ] && [ "${#value}" -le 128 ] || { echo 'PACKAGE_OPERATION: empty or oversized name'; exit 2; }
   case "$value" in -*|*[!a-zA-Z0-9+._:-]*) echo 'PACKAGE_OPERATION: invalid name'; exit 2;; esac;;
 esac
+case "$operation" in installed|search|details|updates|diagnose|dependencies|configure|repair) LR_PACKAGE_DIAGNOSIS=1;; esac
 package_lock_acquire || exit $?
 for file in package-operation.log package-result package-state.tsv package-details.txt package-interrupted package-operation.previous.log package-output.tmp package-search.tmp package-installed.tmp package-state.tsv.new package-details.txt.new package-result.new; do
  [ ! -L "$file" ] || { echo 'PACKAGE_OPERATION: unsafe managed file'; exit 2; }
 done
-if command -v apt-get >/dev/null; then distro=debian; else distro=alpine; fi
+if command -v apt-get >/dev/null; then distro=debian
+elif command -v pacman >/dev/null; then distro=archarm
+elif command -v apk >/dev/null; then distro=alpine
+else echo 'PACKAGE_OPERATION: unsupported distribution'; exit 2; fi
 printf 'operation=%s\ndistribution=%s\nstarted=%s\n' "$operation" "$distro" "$(date +%s)" > package-interrupted
 printf 'running\n' > package-result
 rm -f package-state.tsv.new package-details.txt.new
 mv -f package-operation.log package-operation.previous.log 2>/dev/null || true
 : > package-operation.log
+perform_arch() {
+ case "$operation" in
+ installed)
+  pacman -Q > package-installed.tmp
+  awk 'BEGIN{OFS="\t"}{print $1,$2,"aarch64","installed"}' package-installed.tmp > package-state.tsv.new
+  head -n 2000 package-state.tsv.new; mv package-state.tsv.new package-state.tsv; rm -f package-installed.tmp;;
+ search)
+  code=0; pacman -Ss --color never -- "$value" > package-search.tmp || code=$?
+  # pacman uses exit 1 for no matches, and for errors: only empty output is a
+  # successful empty result. stderr remains in the operation log.
+  [ "$code" = 0 ] || { [ "$code" = 1 ] && [ ! -s package-search.tmp ]; } || return "$code"
+  awk 'BEGIN{OFS="\t"} /^[^ \t]+\/[^ \t]+ / {split($1,a,"/");n=a[2];v=$2;s=($0~/\[installed/?"installed":"available");next} /^[ \t]/ && n!="" {sub(/^[ \t]+/,"");print n,v,"aarch64",s,$0;n=""}' package-search.tmp > package-state.tsv.new
+  cat package-state.tsv.new; mv package-state.tsv.new package-state.tsv; rm -f package-search.tmp;;
+ details)
+  pacman -Si -- "$value" > package-details.txt.new || pacman -Qi -- "$value" > package-details.txt.new
+  cat package-details.txt.new; mv package-details.txt.new package-details.txt;;
+ updates)
+  code=0; pacman -Qu > package-search.tmp || code=$?
+  cat package-search.tmp
+  [ "$code" = 0 ] || { [ "$code" = 1 ] && [ ! -s package-search.tmp ]; };;
+ update) pacman -Sy;;
+ install|upgrade)
+  [ "$operation" != upgrade ] || pacman -Q -- "$value"
+  # Rolling Arch does not support partial upgrades. The real full transaction
+  # and any replacements are reviewed at pacman's interactive prompt.
+  echo 'PACKAGE_STAGE: Arch synchronizes and upgrades the system to keep dependencies consistent; review the pacman transaction below'
+  pacman -Syu --needed -- "$value";;
+ remove) pacman -R -- "$value";;
+ diagnose|dependencies)
+  pacman -Dk || return $?
+  if [ -e /usr/bin/gcc ]; then
+   pacman -Q gcc && pacman -Qo /usr/bin/gcc || return $?
+  fi;;
+ configure|repair)
+  /bin/bash "$LR_PACMAN_RECOVERY_SCRIPT";;
+ esac
+}
 # tee streams the retained stdout/stderr into the terminal; the status is saved
 # separately because POSIX pipelines do not propagate the first command's exit.
 perform() {
  echo "PACKAGE_OPERATION: distribution=$distro operation=$operation started=$(date +%s)"
+ if [ "$distro" = archarm ]; then perform_arch; return $?; fi
  case "$operation" in
  installed)
   if [ "$distro" = debian ]; then

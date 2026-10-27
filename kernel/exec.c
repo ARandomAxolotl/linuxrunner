@@ -287,7 +287,9 @@ static int elf_exec(struct fd *fd, const char *file, struct exec_args argv, stru
     if (vdso_page == BAD_PAGE)
         goto beyond_hope;
     vdso_page += 1;
-    if ((err = pt_map(current->mem, vdso_page, vdso_pages, (void *) vdso_data, 0, 0)) < 0)
+    // Read + execute, never writable (GitHub issue #3): handlers return through
+    // __kernel_rt_sigreturn in this page, and instruction fetches need P_READ.
+    if ((err = pt_map(current->mem, vdso_page, vdso_pages, (void *) vdso_data, 0, P_READ | P_EXEC)) < 0)
         goto beyond_hope;
     mem_pt(current->mem, vdso_page)->data->name = "[vdso]";
     current->mm->vdso = vdso_page << PAGE_BITS;
@@ -624,6 +626,8 @@ static int do_execve_fd(struct fd *fd, const char *file, struct exec_args argv,
     // unreadable executable images use the conservative suid_dumpable=0 policy.
     mm_set_dumpable(current->mm, ids.euid != current->euid || ids.egid != current->egid ||
         access_check(&stat, AC_R) < 0 ? 0 : 1);
+    // Linux clears the parent-death signal when exec changes credentials.
+    if (ids.euid != current->euid || ids.egid != current->egid) current->pdeath_signal = 0;
     // Saved IDs become the effective IDs after successful exec. Auxv was
     // already constructed with these same prospective IDs for the loader.
     current->euid = current->suid = ids.euid;

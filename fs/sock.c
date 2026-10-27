@@ -579,6 +579,11 @@ static int sockaddr_map_v4_for_v6(struct fd *sock, void *sockaddr, uint_t *socka
 }
 
 static int sockaddr_write(addr_t sockaddr_addr, void *sockaddr, uint_t buffer_len, uint_t *sockaddr_len) {
+    // No source address (e.g. recvmsg/recvfrom on a connected socketpair): the
+    // host leaves the buffer untouched and Linux reports length 0. Reading the
+    // untouched family here returned EINVAL (zbus/glycin, GitHub issue #5).
+    if (*sockaddr_len == 0)
+        return 0;
     struct sockaddr *real_addr = sockaddr;
     struct sockaddr_ *fake_addr = sockaddr;
     fake_addr->family = sock_family_from_real(real_addr->sa_family);
@@ -1381,6 +1386,27 @@ int_t sys_getsockopt(fd_t sock_fd, dword_t level, dword_t option, addr_t value_a
         unlock(&peer_lock);
         if (cred->pid != 0) *cred = cred_for_receiver(*cred);
         value_len = sizeof(*cred);
+    } else if (level == SOL_SOCKET_ && option == SO_PEERPIDFD_) {
+        // Linux 6.5: a pidfd for the process at the other end of a connected
+        // AF_UNIX socket (the SO_PEERCRED process). zbus (GLib/glycin image
+        // loaders, GitHub issue #5) treats ENOPROTOOPT as "older kernel" but any
+        // other error as fatal.
+        if (buffer_len < sizeof(int_t)) { ret = _EINVAL; goto out; }
+        pid_t_ peer = 0;
+        lock(&peer_lock);
+        if (sock->socket.domain == AF_LOCAL_ && sock->socket.unix_peer != NULL)
+            peer = sock->socket.unix_peer->socket.unix_cred.pid;
+        unlock(&peer_lock);
+        if (peer == 0) { ret = _ENODATA; goto out; }
+        lock(&pids_lock);
+        struct task *peer_task = pid_get_task(peer);
+        bool alive = peer_task != NULL && !peer_task->zombie;
+        unlock(&pids_lock);
+        if (!alive) { ret = _ESRCH; goto out; }
+        int_t pidfd = pidfd_install(peer);
+        if (pidfd < 0) { ret = pidfd; goto out; }
+        memcpy(value, &pidfd, sizeof pidfd);
+        value_len = sizeof pidfd;
     } else if (level == SOL_SOCKET_ && option == SO_ERROR_) {
         if (buffer_len != sizeof(dword_t)) {
             ret = _EINVAL;
@@ -1464,7 +1490,7 @@ int_t sys_getsockopt(fd_t sock_fd, dword_t level, dword_t option, addr_t value_a
     } else {
         int real_opt = sock_opt_to_real(option, level);
         if (real_opt < 0) {
-            ret = _EINVAL;
+            ret = _ENOPROTOOPT;   // Linux: unknown option; was EINVAL
             goto out;
         }
         int real_level = sock_level_to_real(level);

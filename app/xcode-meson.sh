@@ -23,15 +23,18 @@ if [[ -n "$login_path" ]]; then
     export PATH="$PATH:$login_path"
 fi
 
-terax_tools=${LINUXRUNNER_TOOLCHAIN_ROOT:-}
-terax_lld=$terax_tools/.tmp-lld-bottle/lld/22.1.5
-terax_llvm=$terax_tools/.tmp-llvm-bottle/llvm/22.1.5
-terax_z3=$terax_tools/.tmp-homebrew/Cellar/z3/4.15.4
-terax_zstd=$terax_tools/.tmp-homebrew/Cellar/zstd/1.5.7_1
-terax_lz4=$terax_tools/.tmp-homebrew/Cellar/lz4/1.10.0
-if [[ -n "$terax_tools" && -x "$terax_lld/bin/ld.lld" && -d "$terax_llvm/lib" ]]; then
-    export PATH="$terax_lld/bin:$PATH"
-    export DYLD_LIBRARY_PATH="$terax_lld/lib:$terax_llvm/lib:$terax_z3/lib:$terax_zstd/lib:$terax_lz4/lib${DYLD_LIBRARY_PATH:+:$DYLD_LIBRARY_PATH}"
+# Optional toolchain bundle; normal builds use tools already on PATH.
+if [ -n "${LINUXRUNNER_TOOLCHAIN_ROOT:-}" ]; then
+    terax_tools=$LINUXRUNNER_TOOLCHAIN_ROOT
+    terax_lld=$terax_tools/.tmp-lld-bottle/lld/22.1.5
+    terax_llvm=$terax_tools/.tmp-llvm-bottle/llvm/22.1.5
+    terax_z3=$terax_tools/.tmp-homebrew/Cellar/z3/4.15.4
+    terax_zstd=$terax_tools/.tmp-homebrew/Cellar/zstd/1.5.7_1
+    terax_lz4=$terax_tools/.tmp-homebrew/Cellar/lz4/1.10.0
+    if [ -x "$terax_lld/bin/ld.lld" ] && [ -d "$terax_llvm/lib" ]; then
+        export PATH="$terax_lld/bin:$PATH"
+        export DYLD_LIBRARY_PATH="$terax_lld/lib:$terax_llvm/lib:$terax_z3/lib:$terax_zstd/lib:$terax_lz4/lib${DYLD_LIBRARY_PATH:+:$DYLD_LIBRARY_PATH}"
+    fi
 fi
 
 mkdir -p "$MESON_BUILD_DIR"
@@ -97,7 +100,7 @@ guest_arch=${GUEST_ARCH:-arm64}
 # Only the isolated bootstrap target may compile the native backend; it still
 # installs the native fault adapter; static images are linked separately only
 # when the checked Apple image build is explicitly requested.
-(set -x; meson configure -Djit=$jit -Djit_emit=false -Dcli_aot=) || exit $?
+(set -x; meson configure -Djit=$jit -Djit_emit=false -Dcli_aot= -Dvdso_required=true) || exit $?
 for var in buildtype log b_ndebug b_sanitize log_handler kernel kconfig guest_arch; do
     old_value=$(python3 -c "import sys, json; v = next(x['value'] for x in json.load(sys.stdin) if x['name'] == '$var'); print(str(v).lower() if isinstance(v, bool) else ','.join(v) if isinstance(v, list) else v)" <<< $config)
     new_value=${!var}

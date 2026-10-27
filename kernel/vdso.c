@@ -4,13 +4,8 @@
 #include "kernel/elf.h"
 #include "kernel/vdso.h"
 
-// The VDSO binary is included at compile time
-// The include path is set by meson to point to the correct arch-specific directory
-__asm__(".data\n"
-        ".global vdso_data\n"
-        "vdso_data:\n"
-        ".incbin \"libvdso.so.elf\"\n"
-        ".skip "str(VDSO_PAGES)" * (1 << 12) - (. - vdso_data)\n");
+// vdso_data (the guest vDSO image) is generated from libvdso.so.elf by
+// vdso/arm64/embed.py, so the build tracks the vDSO's contents.
 
 int vdso_symbol(const char *name) {
     struct elf_header64 *header = (void *) vdso_data;

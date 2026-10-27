@@ -288,16 +288,50 @@ void compat_census(void (*emit)(const char *, void *), void *context) {
     pthread_mutex_unlock(&compat_lock);
 }
 
+// Repeated identical faults (same program, PC and signal — e.g. a respawned
+// shell crashing in a loop, GitHub issue #3) keep the first reports complete
+// and then shrink to counts, so diagnostics cannot flood the log or the disk.
+#define FAULT_REPEAT_SLOTS 32
+#define FAULT_FULL_REPORTS 2     // complete context for the first occurrences
+#define FAULT_LINE_REPORTS 8     // then one GUEST_FAULT line each, up to this count
+#define FAULT_SUMMARY_EVERY 64   // then a counted summary line every N occurrences
+static struct { char comm[16]; uint64_t pc; int signal; unsigned count; } fault_repeats[FAULT_REPEAT_SLOTS];
+static unsigned fault_repeat_next;
+static pthread_mutex_t fault_repeat_lock = PTHREAD_MUTEX_INITIALIZER;
+static unsigned fault_occurrence(int signal) {
+    pthread_mutex_lock(&fault_repeat_lock);
+    unsigned count = 0;
+    for (unsigned i = 0; i < FAULT_REPEAT_SLOTS && !count; i++)
+        if (fault_repeats[i].count && fault_repeats[i].pc == current->cpu.pc && fault_repeats[i].signal == signal &&
+                !strncmp(fault_repeats[i].comm, current->comm, sizeof fault_repeats[i].comm))
+            count = ++fault_repeats[i].count;
+    if (!count) {
+        unsigned i = fault_repeat_next++ % FAULT_REPEAT_SLOTS;
+        strncpy(fault_repeats[i].comm, current->comm, sizeof fault_repeats[i].comm);
+        fault_repeats[i].pc = current->cpu.pc; fault_repeats[i].signal = signal; fault_repeats[i].count = count = 1;
+    }
+    pthread_mutex_unlock(&fault_repeat_lock);
+    return count;
+}
+
 void runtime_report_guest_fault(int signal, uint64_t address, uint32_t instruction) {
     if (!instruction) { uint32_t word; if (!user_get(current->cpu.pc,word)) instruction=word; }
     int ppid = 0;
     lock(&pids_lock);
     ppid = task_parent_pid(current);
     unlock(&pids_lock);
-    printk("GUEST_FAULT: pid=%d ppid=%d comm=%.16s signal=%d pc=%#llx sp=%#llx address=%#llx instruction=%#x\n",
-        current->pid, ppid, current->comm, signal, (unsigned long long)current->cpu.pc,
-        (unsigned long long)current->cpu.sp, (unsigned long long)address, instruction);
+    unsigned occurrence = fault_occurrence(signal);
     compat_record(COMPAT_FAULT, signal == 4 ? instruction : 0, (uint32_t) signal);
+    if (occurrence > FAULT_LINE_REPORTS) {
+        if (occurrence % FAULT_SUMMARY_EVERY == 0)
+            printk("GUEST_FAULT_REPEATED: comm=%.16s signal=%d pc=%#llx occurrences=%u (details were reported for the first %d)\n",
+                current->comm, signal, (unsigned long long)current->cpu.pc, occurrence, FAULT_FULL_REPORTS);
+        return;
+    }
+    printk("GUEST_FAULT: pid=%d ppid=%d comm=%.16s signal=%d pc=%#llx sp=%#llx address=%#llx instruction=%#x occurrence=%u\n",
+        current->pid, ppid, current->comm, signal, (unsigned long long)current->cpu.pc,
+        (unsigned long long)current->cpu.sp, (unsigned long long)address, instruction, occurrence);
+    if (occurrence > FAULT_FULL_REPORTS) return;
     if (g_trace_faults) {
         for (unsigned i = 0; i < 31; i++) {
             printk("GUEST_REGISTER: pid=%d x%u=%#llx\n", current->pid, i,

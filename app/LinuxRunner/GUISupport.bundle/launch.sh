@@ -19,6 +19,11 @@ if command -v readelf >/dev/null; then
     loader=$(readelf -l "$command" 2>/dev/null | sed -n 's/.*interpreter: \(.*\)\]/\1/p') || true
     [ -z "$loader" ] || [ -x "$loader" ] || { echo "GUI_LAUNCH: dynamic loader missing: $loader"; exit 126; }
 fi
+# Independent launcher calls can adopt the validated active account session.
+# Session-owned requests already inherit its exact DISPLAY/auth/bus/runtime.
+if [ -z "${DISPLAY:-}" ]; then . "$base/desktop-env.sh"; fi
+[ -n "${DISPLAY:-}" ] || { echo 'GUI_LAUNCH: no active display for this account; open Desktop first'; exit 125; }
+export QT_FORCE_STDERR_LOGGING=${QT_FORCE_STDERR_LOGGING:-1}
 echo "GUI_LAUNCH: executable=$command directory=$PWD DISPLAY=$DISPLAY"
 # Graphics routing: the launcher's own choice, else the session default from
 # Settings (session.sh exports it). Unusable GPU modes fall back to Mesa.

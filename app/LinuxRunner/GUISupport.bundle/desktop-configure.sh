@@ -58,3 +58,49 @@ profile_link "$base/config/xfce4/xfconf/xfce-perchannel-xml/xfce4-panel.xml" "$u
 printf 'schema=1\nconfiguration=first-write-only\n' > "$base/configuration.meta.new"
 mv "$base/configuration.meta.new" "$base/configuration.meta"
 echo "DESKTOP_CONFIG: version=1 destination=$base user_files=preserved result=PASS"
+# Arch's Qt applications use a different schema from LXPanel/GTK PCManFM.
+# A new named app profile leaves the old auto-generated (or customized) Qt
+# profile intact. Never replace the user's normal LXQt panel configuration.
+desktop_distro=$(sed -n 's/^ID=//p' /etc/os-release 2>/dev/null | tr -d '\"')
+# Explicit component defaults can also be generated without an Arch host.
+[ "${1:-}" != qt-x11 ] || desktop_distro=arch
+case "$desktop_distro" in arch|archarm)
+ mkdir -p "$base/config/lxqt" "$base/config/pcmanfm-qt/LinuxRunner-X11" "$base/share/applications"
+ put desktop-qt-panel.conf "$base/config/lxqt/panel.conf"
+ if [ ! -e "$base/config/pcmanfm-qt/LinuxRunner-X11/settings.conf" ]; then
+  cat > "$base/config/pcmanfm-qt/LinuxRunner-X11/settings.conf.new" <<EOF
+[System]
+FallbackIconThemeName=Adwaita
+Terminal=xterm
+[Desktop]
+WallpaperMode=fit
+Wallpaper=$PWD/desktop-wallpaper.png
+BgColor=#0b1425
+FgColor=#e9f1ff
+ShadowColor=#000000
+HideItems=false
+DesktopIconSize=48
+[Volume]
+MountOnStartup=false
+MountRemovable=false
+AutoRun=false
+[Window]
+LastWindowWidth=680
+LastWindowHeight=420
+EOF
+  mv "$base/config/pcmanfm-qt/LinuxRunner-X11/settings.conf.new" "$base/config/pcmanfm-qt/LinuxRunner-X11/settings.conf"
+ fi
+ profile_link "$base/config/pcmanfm-qt/LinuxRunner-X11" "$user_config/pcmanfm-qt/LinuxRunner-X11"
+ for app in Terminal Files; do
+  case "$app" in Terminal) executable=xterm; icon=utilities-terminal;; Files) executable='pcmanfm-qt --profile LinuxRunner-X11'; icon=system-file-manager;; esac
+  target="$base/share/applications/linuxrunner-$app.desktop"
+  if [ ! -e "$target" ]; then
+   printf '[Desktop Entry]\nType=Application\nName=%s\nExec=%s\nIcon=%s\nTerminal=false\nCategories=Utility;\n' "$app" "$executable" "$icon" > "$target.new"
+   chmod 644 "$target.new"; mv "$target.new" "$target"
+  fi
+  desktop_dir="$HOME/Desktop"
+  if command -v xdg-user-dir >/dev/null; then desktop_dir=$(xdg-user-dir DESKTOP); fi
+  case "$desktop_dir" in /*) mkdir -p "$desktop_dir"; if [ ! -e "$desktop_dir/LinuxRunner-$app.desktop" ] && [ ! -L "$desktop_dir/LinuxRunner-$app.desktop" ]; then put "$target" "$desktop_dir/LinuxRunner-$app.desktop"; chmod u+x "$desktop_dir/LinuxRunner-$app.desktop"; fi;; esac
+ done
+ echo 'DESKTOP_CONFIG: qt-profile=LinuxRunner-X11 panel=managed configuration=first-write-only old-profiles=preserved'
+;; esac

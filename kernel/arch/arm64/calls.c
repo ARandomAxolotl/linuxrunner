@@ -286,6 +286,7 @@ syscall_t syscall_table[] = {
     [425] = (syscall_t) syscall_silent_stub, // io_uring_setup
     [426] = (syscall_t) syscall_silent_stub, // io_uring_enter
     [427] = (syscall_t) syscall_silent_stub, // io_uring_register
+    [424] = (syscall_t) sys_pidfd_send_signal, // pidfd_send_signal
     [434] = (syscall_t) sys_pidfd_open, // pidfd_open
     [435] = (syscall_t) sys_clone3,
     [436] = (syscall_t) sys_close_range,

@@ -17,6 +17,11 @@ struct fiber_frame {
     uint64_t jit_exit_sp; // host sp value that fiber_exit expects (set by fiber_enter)
     addr_t jit_saved_pc; // precise guest PC to retry after an async JIT host fault
     unsigned long *fault_code; // code-stream position (_pc) of a guest memory fault exit
+    // Register-operand slots for gadgets that address guest registers by byte
+    // offset from the frame: XZR reads come from xzr_read (always 0, never
+    // written), XZR/discarded results go to xzr_sink.
+    uint64_t xzr_read;
+    uint64_t xzr_sink;
     long ret_cache[FIBER_RETURN_CACHE_SIZE]; // a map of ip to pointer-to-call-gadget-arguments
 #ifdef ISH_JIT
     uintptr_t native_fault_host_pc;
