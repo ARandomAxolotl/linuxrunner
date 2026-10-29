@@ -1,0 +1,60 @@
+
+name: Build LinuxRunner IPA
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: macos-latest
+    timeout-minutes: 90
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+        with:
+          submodules: false
+
+      - name: Initialize pinned dependencies
+        run: |
+          git submodule update --init --recursive --checkout \
+            -- deps/libapps \
+               deps/libarchive \
+               deps/glslang \
+               deps/spirv-cross
+
+      - name: Show Xcode version
+        run: |
+          xcodebuild -version
+          xcodebuild -showsdks
+          brew --version
+
+      - name: Bootstrap toolchain
+        run: |
+          export DEVELOPER_DIR="$(xcode-select -p)"
+          scripts/bootstrap-macos.sh
+
+      - name: Build unsigned IPA
+        run: |
+          export DEVELOPER_DIR="$(xcode-select -p)"
+          scripts/build-ipa.sh --unsigned
+
+      - name: Verify IPA
+        if: success()
+        run: |
+          python3 scripts/verify-ipa.py build/releases
+
+      - name: Upload IPA and build reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: LinuxRunner-${{ github.sha }}
+          path: |
+            build/releases/**
+          if-no-files-found: warn
+          retention-days: 7
